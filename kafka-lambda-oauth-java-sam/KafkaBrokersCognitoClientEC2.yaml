@@ -366,9 +366,13 @@ Resources:
               install_pkg java-17-amazon-corretto-headless wget tar
 
               cd /home/ec2-user
-              wget -q "$KAFKA_URL"
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
+              for attempt in 1 2 3 4 5 6; do
+                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
+                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
+              done
+              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
 
@@ -388,7 +392,7 @@ Resources:
               process.roles=broker,controller
               node.id=$NODE_ID
               controller.quorum.voters=$QUORUM_VOTERS
-              listeners=CLIENT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:9094
+              listeners=CLIENT://$BROKER_IP:9092,CONTROLLER://$BROKER_IP:9093,INTERNAL://$BROKER_IP:9094
               advertised.listeners=CLIENT://$BROKER_IP:9092,INTERNAL://$BROKER_IP:9094
               listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_PLAINTEXT
               controller.listener.names=CONTROLLER
@@ -491,9 +495,13 @@ Resources:
               install_pkg java-17-amazon-corretto-headless wget tar
 
               cd /home/ec2-user
-              wget -q "$KAFKA_URL"
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
+              for attempt in 1 2 3 4 5 6; do
+                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
+                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
+              done
+              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
 
@@ -513,7 +521,7 @@ Resources:
               process.roles=broker,controller
               node.id=$NODE_ID
               controller.quorum.voters=$QUORUM_VOTERS
-              listeners=CLIENT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:9094
+              listeners=CLIENT://$BROKER_IP:9092,CONTROLLER://$BROKER_IP:9093,INTERNAL://$BROKER_IP:9094
               advertised.listeners=CLIENT://$BROKER_IP:9092,INTERNAL://$BROKER_IP:9094
               listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_PLAINTEXT
               controller.listener.names=CONTROLLER
@@ -616,9 +624,13 @@ Resources:
               install_pkg java-17-amazon-corretto-headless wget tar
 
               cd /home/ec2-user
-              wget -q "$KAFKA_URL"
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
+              for attempt in 1 2 3 4 5 6; do
+                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
+                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
+              done
+              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
 
@@ -638,7 +650,7 @@ Resources:
               process.roles=broker,controller
               node.id=$NODE_ID
               controller.quorum.voters=$QUORUM_VOTERS
-              listeners=CLIENT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:9094
+              listeners=CLIENT://$BROKER_IP:9092,CONTROLLER://$BROKER_IP:9093,INTERNAL://$BROKER_IP:9094
               advertised.listeners=CLIENT://$BROKER_IP:9092,INTERNAL://$BROKER_IP:9094
               listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_PLAINTEXT
               controller.listener.names=CONTROLLER
@@ -777,9 +789,13 @@ Resources:
 
               # Kafka CLI tools + Strimzi client OAuth libraries
               cd /home/ec2-user
-              wget -q "$KAFKA_URL"
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
+              for attempt in 1 2 3 4 5 6; do
+                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
+                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
+              done
+              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
               cd /home/ec2-user/kafka/libs
