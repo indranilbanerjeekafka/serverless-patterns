@@ -1,0 +1,68 @@
+{
+    "title": "AWS Lambda consumer for a self-managed Apache Kafka cluster with OAuth (Cognito) auth (Java)",
+    "description": "Creates a Lambda function that consumes from a self-managed Apache Kafka cluster on EC2, secured with SASL/OAUTHBEARER using an Amazon Cognito User Pool.",
+    "language": "Java",
+    "level": "300",
+    "framework": "AWS SAM",
+    "introBox": {
+        "headline": "How it works",
+        "text": [
+            "This pattern provisions a self-managed Apache Kafka cluster (3 brokers on 3 EC2 instances, KRaft mode) plus a 4th EC2 instance that acts as a Kafka client and SAM deployment host.",
+            "The Kafka brokers are configured for SASL/OAUTHBEARER authentication, validating JWT access tokens issued by an Amazon Cognito User Pool that is created by the CloudFormation template.",
+            "The Cognito admin username and password are supplied as CloudFormation parameters. The client instance exchanges them for a Cognito access token and uses it to create the topic and produce messages.",
+            "The SAM template defines a Java Lambda function with a self-managed Apache Kafka event source. Note: at publishing time, AWS Lambda self-managed Kafka event sources do not yet support SASL/OAUTHBEARER; the authentication SourceAccessConfiguration is scaffolded as a placeholder to be completed when support ships.",
+            "For detailed deployment instructions see the README.md"
+        ]
+    },
+    "gitHub": {
+        "template": {
+            "repoURL": "https://github.com/aws-samples/serverless-patterns/tree/main/kafka-lambda-oauth-java-sam",
+            "templateURL": "serverless-patterns/kafka-lambda-oauth-java-sam",
+            "projectFolder": "kafka-lambda-oauth-java-sam",
+            "templateFile": "template.yaml"
+        }
+    },
+    "resources": {
+        "bullets": [
+            {
+                "text": "Using AWS Lambda with self-managed Apache Kafka",
+                "link": "https://docs.aws.amazon.com/lambda/latest/dg/with-kafka.html"
+            },
+            {
+                "text": "Amazon Cognito User Pools OAuth 2.0 endpoints",
+                "link": "https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-userpools-server-contract-reference.html"
+            },
+            {
+                "text": "Apache Kafka SASL/OAUTHBEARER authentication",
+                "link": "https://kafka.apache.org/documentation/#security_sasl_oauthbearer"
+            },
+            {
+                "text": "Strimzi OAuth for Apache Kafka",
+                "link": "https://github.com/strimzi/strimzi-kafka-oauth"
+            }
+        ]
+    },
+    "deploy": {
+        "text": [
+            "sam deploy --guided"
+        ]
+    },
+    "testing": {
+        "text": [
+            "See the GitHub repo for detailed testing instructions."
+        ]
+    },
+    "cleanup": {
+        "text": [
+            "Delete the SAM stack: <code>sam delete</code>.",
+            "Delete the CloudFormation stack that created the Kafka brokers, Cognito User Pool and client EC2 instance."
+        ]
+    },
+    "authors": [
+      {
+        "name": "Indranil Banerjee",
+        "bio": "AWS - Senior Solutions Architect",
+        "linkedin": "https://www.linkedin.com/in/indranil-banerjee-b00a261/"
+      }
+    ]
+  }

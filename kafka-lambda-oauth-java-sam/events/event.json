@@ -1,0 +1,30 @@
+{
+   "records":{
+      "myTopic-0":[
+         {
+            "topic":"myTopic",
+            "partition":0,
+            "offset":250,
+            "timestamp":1678072110111,
+            "timestampType":"CREATE_TIME",
+            "value":"Zg==",
+            "headers":[
+
+            ]
+         },
+         {
+            "topic":"myTopic",
+            "partition":0,
+            "offset":251,
+            "timestamp":1678072111086,
+            "timestampType":"CREATE_TIME",
+            "value":"Zw==",
+            "headers":[
+
+            ]
+         }
+      ]
+   },
+   "eventSource":"aws:SelfManagedKafka",
+   "bootstrapServers":"10.0.1.10:9092,10.0.2.10:9092,10.0.3.10:9092"
+}
