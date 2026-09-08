@@ -400,7 +400,7 @@ Resources:
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -529,7 +529,7 @@ Resources:
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -658,7 +658,7 @@ Resources:
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
