@@ -240,6 +240,40 @@ Resources:
       TokenValidityUnits:
         AccessToken: hours
 
+  # Hosted-UI domain, resource server + scope, and a machine-to-machine app
+  # client (client_credentials grant) used by the AWS Lambda self-managed Kafka
+  # event source poller to mint OAuth tokens.
+  CognitoUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      Domain: !Sub "${AWS::StackName}-${AWS::AccountId}"
+
+  CognitoResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      Identifier: kafka
+      Name: kafka
+      Scopes:
+        - ScopeName: consume
+          ScopeDescription: Consume Kafka messages
+
+  CognitoPollerClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoResourceServer
+    Properties:
+      ClientName: !Sub "${AWS::StackName}-kafka-poller"
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: true
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - kafka/consume
+      AllowedOAuthFlowsUserPoolClient: true
+      SupportedIdentityProviders:
+        - COGNITO
+
   # ---- Generated passwords for the three role users (kept in Secrets Manager,
   #      never passed as CloudFormation parameters). The template stores a JSON
   #      { "username": ..., "password": ... } for each role. ----
@@ -423,6 +457,7 @@ Resources:
               NIMBUS_VERSION=${nimbus_version}
               KAFKA_CLUSTER_ID=${kafka_cluster_id}
               ADMIN_USERNAME=${admin_username}
+              POLLER_CLIENT_ID=${poller_client_id}
 
               install_pkg() {
                 for i in 1 2 3 4 5; do
@@ -487,6 +522,31 @@ Resources:
               ISSUER="https://cognito-idp.$REGION.amazonaws.com/$USER_POOL_ID"
               JWKS="$ISSUER/.well-known/jwks.json"
 
+              # --- TLS for the SASL_SSL client listener. Broker 1 (seeder) makes ONE
+              # self-signed cert with all three broker IPs as SANs and publishes the
+              # PKCS12 keystore + cert PEM to S3; the other brokers fetch the keystore.
+              mkdir -p /home/ec2-user/kafka/config
+              CERT_S3="s3://$KAFKA_CACHE_BUCKET/tls"
+              KEYSTORE=/home/ec2-user/kafka/config/kafka.keystore.p12
+              if aws s3 ls "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" >/dev/null 2>&1; then
+                aws s3 cp "$CERT_S3/kafka.keystore.p12" "$KEYSTORE" --region "$KCREGION"
+              elif [ "$SEEDER" = "true" ]; then
+                openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+                  -keyout /tmp/kafka.key -out /tmp/kafka.crt -subj "/CN=kafka-oauth" \
+                  -addext "subjectAltName=IP:10.0.1.10,IP:10.0.2.10,IP:10.0.3.10"
+                openssl pkcs12 -export -in /tmp/kafka.crt -inkey /tmp/kafka.key -name kafka \
+                  -out "$KEYSTORE" -passout pass:changeit
+                aws s3 cp "$KEYSTORE" "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" || true
+                aws s3 cp /tmp/kafka.crt "$CERT_S3/kafka.crt" --region "$KCREGION" || true
+              else
+                for i in $(seq 1 60); do
+                  if aws s3 ls "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" >/dev/null 2>&1; then
+                    aws s3 cp "$CERT_S3/kafka.keystore.p12" "$KEYSTORE" --region "$KCREGION" && break
+                  fi
+                  echo "waiting for TLS keystore in S3 cache... ($i)"; sleep 10
+                done
+              fi
+
               cd /home/ec2-user/kafka
               cat > config/kraft-oauth.properties <<EOF
               process.roles=broker,controller
@@ -494,16 +554,20 @@ Resources:
               controller.quorum.voters=$QUORUM_VOTERS
               listeners=CLIENT://$BROKER_IP:9092,CONTROLLER://$BROKER_IP:9093,INTERNAL://$BROKER_IP:9094
               advertised.listeners=CLIENT://$BROKER_IP:9092,INTERNAL://$BROKER_IP:9094
-              listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_PLAINTEXT
+              listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_SSL
               controller.listener.names=CONTROLLER
               inter.broker.listener.name=INTERNAL
+              listener.name.client.ssl.keystore.location=/home/ec2-user/kafka/config/kafka.keystore.p12
+              listener.name.client.ssl.keystore.password=changeit
+              listener.name.client.ssl.key.password=changeit
+              listener.name.client.ssl.keystore.type=PKCS12
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.fallback.username.claim="client_id" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
               authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
               allow.everyone.if.no.acl.found=false
-              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
+              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME;User:$POLLER_CLIENT_ID
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -551,6 +615,7 @@ Resources:
               nimbus_version: !Ref NimbusJoseJwtVersion
               kafka_cluster_id: !Ref KafkaClusterId
               admin_username: !Ref AdminUsername
+              poller_client_id: !Ref CognitoPollerClient
 
   KafkaBroker2:
     Type: AWS::EC2::Instance
@@ -588,6 +653,7 @@ Resources:
               NIMBUS_VERSION=${nimbus_version}
               KAFKA_CLUSTER_ID=${kafka_cluster_id}
               ADMIN_USERNAME=${admin_username}
+              POLLER_CLIENT_ID=${poller_client_id}
 
               install_pkg() {
                 for i in 1 2 3 4 5; do
@@ -652,6 +718,31 @@ Resources:
               ISSUER="https://cognito-idp.$REGION.amazonaws.com/$USER_POOL_ID"
               JWKS="$ISSUER/.well-known/jwks.json"
 
+              # --- TLS for the SASL_SSL client listener. Broker 1 (seeder) makes ONE
+              # self-signed cert with all three broker IPs as SANs and publishes the
+              # PKCS12 keystore + cert PEM to S3; the other brokers fetch the keystore.
+              mkdir -p /home/ec2-user/kafka/config
+              CERT_S3="s3://$KAFKA_CACHE_BUCKET/tls"
+              KEYSTORE=/home/ec2-user/kafka/config/kafka.keystore.p12
+              if aws s3 ls "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" >/dev/null 2>&1; then
+                aws s3 cp "$CERT_S3/kafka.keystore.p12" "$KEYSTORE" --region "$KCREGION"
+              elif [ "$SEEDER" = "true" ]; then
+                openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+                  -keyout /tmp/kafka.key -out /tmp/kafka.crt -subj "/CN=kafka-oauth" \
+                  -addext "subjectAltName=IP:10.0.1.10,IP:10.0.2.10,IP:10.0.3.10"
+                openssl pkcs12 -export -in /tmp/kafka.crt -inkey /tmp/kafka.key -name kafka \
+                  -out "$KEYSTORE" -passout pass:changeit
+                aws s3 cp "$KEYSTORE" "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" || true
+                aws s3 cp /tmp/kafka.crt "$CERT_S3/kafka.crt" --region "$KCREGION" || true
+              else
+                for i in $(seq 1 60); do
+                  if aws s3 ls "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" >/dev/null 2>&1; then
+                    aws s3 cp "$CERT_S3/kafka.keystore.p12" "$KEYSTORE" --region "$KCREGION" && break
+                  fi
+                  echo "waiting for TLS keystore in S3 cache... ($i)"; sleep 10
+                done
+              fi
+
               cd /home/ec2-user/kafka
               cat > config/kraft-oauth.properties <<EOF
               process.roles=broker,controller
@@ -659,16 +750,20 @@ Resources:
               controller.quorum.voters=$QUORUM_VOTERS
               listeners=CLIENT://$BROKER_IP:9092,CONTROLLER://$BROKER_IP:9093,INTERNAL://$BROKER_IP:9094
               advertised.listeners=CLIENT://$BROKER_IP:9092,INTERNAL://$BROKER_IP:9094
-              listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_PLAINTEXT
+              listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_SSL
               controller.listener.names=CONTROLLER
               inter.broker.listener.name=INTERNAL
+              listener.name.client.ssl.keystore.location=/home/ec2-user/kafka/config/kafka.keystore.p12
+              listener.name.client.ssl.keystore.password=changeit
+              listener.name.client.ssl.key.password=changeit
+              listener.name.client.ssl.keystore.type=PKCS12
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.fallback.username.claim="client_id" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
               authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
               allow.everyone.if.no.acl.found=false
-              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
+              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME;User:$POLLER_CLIENT_ID
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -716,6 +811,7 @@ Resources:
               nimbus_version: !Ref NimbusJoseJwtVersion
               kafka_cluster_id: !Ref KafkaClusterId
               admin_username: !Ref AdminUsername
+              poller_client_id: !Ref CognitoPollerClient
 
   KafkaBroker3:
     Type: AWS::EC2::Instance
@@ -753,6 +849,7 @@ Resources:
               NIMBUS_VERSION=${nimbus_version}
               KAFKA_CLUSTER_ID=${kafka_cluster_id}
               ADMIN_USERNAME=${admin_username}
+              POLLER_CLIENT_ID=${poller_client_id}
 
               install_pkg() {
                 for i in 1 2 3 4 5; do
@@ -817,6 +914,31 @@ Resources:
               ISSUER="https://cognito-idp.$REGION.amazonaws.com/$USER_POOL_ID"
               JWKS="$ISSUER/.well-known/jwks.json"
 
+              # --- TLS for the SASL_SSL client listener. Broker 1 (seeder) makes ONE
+              # self-signed cert with all three broker IPs as SANs and publishes the
+              # PKCS12 keystore + cert PEM to S3; the other brokers fetch the keystore.
+              mkdir -p /home/ec2-user/kafka/config
+              CERT_S3="s3://$KAFKA_CACHE_BUCKET/tls"
+              KEYSTORE=/home/ec2-user/kafka/config/kafka.keystore.p12
+              if aws s3 ls "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" >/dev/null 2>&1; then
+                aws s3 cp "$CERT_S3/kafka.keystore.p12" "$KEYSTORE" --region "$KCREGION"
+              elif [ "$SEEDER" = "true" ]; then
+                openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+                  -keyout /tmp/kafka.key -out /tmp/kafka.crt -subj "/CN=kafka-oauth" \
+                  -addext "subjectAltName=IP:10.0.1.10,IP:10.0.2.10,IP:10.0.3.10"
+                openssl pkcs12 -export -in /tmp/kafka.crt -inkey /tmp/kafka.key -name kafka \
+                  -out "$KEYSTORE" -passout pass:changeit
+                aws s3 cp "$KEYSTORE" "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" || true
+                aws s3 cp /tmp/kafka.crt "$CERT_S3/kafka.crt" --region "$KCREGION" || true
+              else
+                for i in $(seq 1 60); do
+                  if aws s3 ls "$CERT_S3/kafka.keystore.p12" --region "$KCREGION" >/dev/null 2>&1; then
+                    aws s3 cp "$CERT_S3/kafka.keystore.p12" "$KEYSTORE" --region "$KCREGION" && break
+                  fi
+                  echo "waiting for TLS keystore in S3 cache... ($i)"; sleep 10
+                done
+              fi
+
               cd /home/ec2-user/kafka
               cat > config/kraft-oauth.properties <<EOF
               process.roles=broker,controller
@@ -824,16 +946,20 @@ Resources:
               controller.quorum.voters=$QUORUM_VOTERS
               listeners=CLIENT://$BROKER_IP:9092,CONTROLLER://$BROKER_IP:9093,INTERNAL://$BROKER_IP:9094
               advertised.listeners=CLIENT://$BROKER_IP:9092,INTERNAL://$BROKER_IP:9094
-              listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_PLAINTEXT
+              listener.security.protocol.map=CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,CLIENT:SASL_SSL
               controller.listener.names=CONTROLLER
               inter.broker.listener.name=INTERNAL
+              listener.name.client.ssl.keystore.location=/home/ec2-user/kafka/config/kafka.keystore.p12
+              listener.name.client.ssl.keystore.password=changeit
+              listener.name.client.ssl.key.password=changeit
+              listener.name.client.ssl.keystore.type=PKCS12
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.fallback.username.claim="client_id" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
               authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
               allow.everyone.if.no.acl.found=false
-              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
+              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME;User:$POLLER_CLIENT_ID
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -881,6 +1007,7 @@ Resources:
               nimbus_version: !Ref NimbusJoseJwtVersion
               kafka_cluster_id: !Ref KafkaClusterId
               admin_username: !Ref AdminUsername
+              poller_client_id: !Ref CognitoPollerClient
 
   KafkaClientEC2Instance:
     Type: AWS::EC2::Instance
@@ -1047,6 +1174,19 @@ Resources:
               wget -q $MVN/io/strimzi/kafka-oauth-client/$STRIMZI_VERSION/kafka-oauth-client-$STRIMZI_VERSION.jar
               wget -q $MVN/com/nimbusds/nimbus-jose-jwt/$NIMBUS_VERSION/nimbus-jose-jwt-$NIMBUS_VERSION.jar
 
+              # Fetch the broker TLS cert (seeded to S3 by broker 1) and build a
+              # PKCS12 truststore so the SASL_SSL producer/consumer/admin clients
+              # trust the brokers. kafka.crt is also the CA for the Lambda ESM.
+              KAFKA_TRUSTSTORE=/home/ec2-user/kafka/config/kafka.truststore.p12
+              for i in $(seq 1 60); do
+                if aws s3 ls "s3://$KAFKA_CACHE_BUCKET/tls/kafka.crt" --region "$KCREGION" >/dev/null 2>&1; then
+                  aws s3 cp "s3://$KAFKA_CACHE_BUCKET/tls/kafka.crt" /home/ec2-user/kafka.crt --region "$KCREGION" && break
+                fi
+                echo "waiting for broker TLS cert in S3 cache... ($i)"; sleep 10
+              done
+              keytool -importcert -noprompt -alias kafka -file /home/ec2-user/kafka.crt \
+                -keystore "$KAFKA_TRUSTSTORE" -storetype PKCS12 -storepass changeit
+
               # Clone the serverless pattern (Java apps + scripts + SAM template)
               cd /home/ec2-user
               git clone $SERVERLESS_LAND_GITHUB_LOCATION
@@ -1072,6 +1212,7 @@ Resources:
               export KAFKA_TOPIC=$KAFKA_TOPIC
               export KAFKA_HOME=$KAFKA_HOME
               export KAFKA_JSON_APPS_JAR=$KAFKA_JSON_APPS_JAR
+              export KAFKA_TRUSTSTORE=$KAFKA_TRUSTSTORE
               export ADMIN_USERNAME=$ADMIN_USERNAME
               export PRODUCER_USERNAME=$PRODUCER_USERNAME
               export CONSUMER_USERNAME=$CONSUMER_USERNAME
@@ -1210,10 +1351,25 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-CognitoUserPoolId"
   CognitoUserPoolClientId:
-    Description: Amazon Cognito User Pool App Client ID
+    Description: Amazon Cognito User Pool App Client ID (USER_PASSWORD_AUTH, used by the Kafka clients)
     Value: !Ref CognitoUserPoolClient
     Export:
       Name: !Sub "${AWS::StackName}-CognitoUserPoolClientId"
+  PollerClientId:
+    Description: Cognito app client ID (client_credentials) used by the Lambda self-managed Kafka poller
+    Value: !Ref CognitoPollerClient
+    Export:
+      Name: !Sub "${AWS::StackName}-PollerClientId"
+  OAuthTokenEndpoint:
+    Description: Cognito OAuth2 token endpoint for the client_credentials grant
+    Value: !Sub "https://${AWS::StackName}-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com/oauth2/token"
+    Export:
+      Name: !Sub "${AWS::StackName}-OAuthTokenEndpoint"
+  OAuthScope:
+    Description: OAuth scope the Lambda poller requests
+    Value: kafka/consume
+    Export:
+      Name: !Sub "${AWS::StackName}-OAuthScope"
   KafkaTopicForLambda:
     Description: The Kafka topic the Lambda function will consume from
     Value: !Ref KafkaTopicForLambda

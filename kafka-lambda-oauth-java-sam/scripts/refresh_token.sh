@@ -28,8 +28,11 @@ fi
 
 cat > "$OUT" <<EOF
 bootstrap.servers=$BOOTSTRAP_SERVERS
-security.protocol=SASL_PLAINTEXT
+security.protocol=SASL_SSL
 sasl.mechanism=OAUTHBEARER
+ssl.truststore.location=$KAFKA_TRUSTSTORE
+ssl.truststore.password=changeit
+ssl.truststore.type=PKCS12
 sasl.login.callback.handler.class=io.strimzi.kafka.oauth.client.JaasClientOauthLoginCallbackHandler
 sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.access.token="$TOKEN" ;
 EOF

@@ -40,19 +40,21 @@ CONSUMER_GROUP="${CONSUMER_GROUP:-lambda-oauth-consumer}"
 POLLER_GROUP="${POLLER_GROUP:-${CONSUMER_GROUP}-cell1}"    # must be a fresh name per VPC + event source type
 BATCH_SIZE="${BATCH_SIZE:-10}"
 
-# Bootstrap servers MUST be the SASL_SSL / OAUTHBEARER listener (TLS), e.g. :9093.
-BOOTSTRAP_SERVERS="${BOOTSTRAP_SERVERS:-10.0.1.10:9093,10.0.2.10:9093,10.0.3.10:9093}"
+# Bootstrap servers = the brokers' SASL_SSL / OAUTHBEARER listener (:9092 in this pattern).
+BOOTSTRAP_SERVERS="${BOOTSTRAP_SERVERS:-10.0.1.10:9092,10.0.2.10:9092,10.0.3.10:9092}"
 
-# --- OAuth client-credentials secret: pass an existing ARN, OR the raw values ---
+# --- OAuth client-credentials secret: pass an existing ARN, OR raw values, OR
+#     leave blank to auto-discover the client_credentials app client from the stack ---
 OAUTH_SECRET_ARN="${OAUTH_SECRET_ARN:-}"
 OAUTH_CLIENT_ID="${OAUTH_CLIENT_ID:-}"
 OAUTH_CLIENT_SECRET="${OAUTH_CLIENT_SECRET:-}"
 OAUTH_TOKEN_ENDPOINT="${OAUTH_TOKEN_ENDPOINT:-}"          # https://<domain>.auth.<region>.amazoncognito.com/oauth2/token
-OAUTH_SCOPE="${OAUTH_SCOPE:-kafka/consume}"
+OAUTH_SCOPE="${OAUTH_SCOPE:-}"
 
-# --- Broker CA trust anchor secret: pass an existing ARN, OR a PEM file path ---
+# --- Broker CA trust anchor secret: pass an existing ARN, OR a PEM file path.
+#     Defaults to the cert the client instance fetched from the S3 cache. ---
 SERVER_CA_SECRET_ARN="${SERVER_CA_SECRET_ARN:-}"
-BROKER_CA_CERT_FILE="${BROKER_CA_CERT_FILE:-}"            # PEM file of the broker's CA / self-signed cert
+BROKER_CA_CERT_FILE="${BROKER_CA_CERT_FILE:-/home/ec2-user/kafka.crt}"
 
 # ---------------------- Discover VPC config from the stack -------------------
 get_output() {
@@ -64,6 +66,19 @@ SUBNET2="${SUBNET2:-$(get_output PrivateSubnetTwo)}"
 SUBNET3="${SUBNET3:-$(get_output PrivateSubnetThree)}"
 SG_ID="${SG_ID:-$(get_output KafkaBrokerSecurityGroupId)}"
 [ -n "$SUBNET1" ] && [ -n "$SG_ID" ] || { echo "ERROR: could not resolve subnets/SG from stack $STACK_NAME; set SUBNET1..3 and SG_ID"; exit 1; }
+
+# Auto-discover the OAuth client-credentials app client from the stack.
+USER_POOL_ID="${USER_POOL_ID:-$(get_output CognitoUserPoolId)}"
+OAUTH_CLIENT_ID="${OAUTH_CLIENT_ID:-$(get_output PollerClientId)}"
+OAUTH_TOKEN_ENDPOINT="${OAUTH_TOKEN_ENDPOINT:-$(get_output OAuthTokenEndpoint)}"
+OAUTH_SCOPE="${OAUTH_SCOPE:-$(get_output OAuthScope)}"
+OAUTH_SCOPE="${OAUTH_SCOPE:-kafka/consume}"
+if [ -z "$OAUTH_SECRET_ARN" ] && [ -z "$OAUTH_CLIENT_SECRET" ] && [ -n "$USER_POOL_ID" ] && [ -n "$OAUTH_CLIENT_ID" ]; then
+  echo "Fetching poller app-client secret from Cognito..."
+  OAUTH_CLIENT_SECRET=$(aws cognito-idp describe-user-pool-client --region "$REGION" \
+    --user-pool-id "$USER_POOL_ID" --client-id "$OAUTH_CLIENT_ID" \
+    --query 'UserPoolClient.ClientSecret' --output text)
+fi
 
 # ------------------------- Create secrets if needed --------------------------
 if [ -z "$OAUTH_SECRET_ARN" ]; then
