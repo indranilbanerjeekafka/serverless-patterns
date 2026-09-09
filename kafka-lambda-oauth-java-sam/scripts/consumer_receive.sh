@@ -3,10 +3,8 @@
 # using the consumer user's OAuth token. This user is only allowed to READ.
 #
 # Usage: consumer_receive.sh <topic> [group-id]
-# Note: not using 'set -u' - sourcing the profile pulls in /etc/bashrc which
-# references an unset variable on Amazon Linux 2023.
 set -eo pipefail
-source /home/ec2-user/.bash_profile
+source /home/ec2-user/kafka_oauth.env
 
 TOPIC="${1:?usage: consumer_receive.sh <topic> [group-id]}"
 GROUP="${2:-kafka-oauth-consumer-group}"

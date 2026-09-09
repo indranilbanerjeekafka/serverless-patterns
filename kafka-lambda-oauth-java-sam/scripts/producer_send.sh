@@ -3,10 +3,8 @@
 # using the producer user's OAuth token. This user is only allowed to WRITE.
 #
 # Usage: producer_send.sh <topic> <count>
-# Note: not using 'set -u' - sourcing the profile pulls in /etc/bashrc which
-# references an unset variable on Amazon Linux 2023.
 set -eo pipefail
-source /home/ec2-user/.bash_profile
+source /home/ec2-user/kafka_oauth.env
 
 TOPIC="${1:?usage: producer_send.sh <topic> <count>}"
 COUNT="${2:?usage: producer_send.sh <topic> <count>}"

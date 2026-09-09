@@ -4,7 +4,7 @@
 # authorizer denies the operation because they lack the required ACL.
 #
 # Usage: bad_unauthorized_operations.sh [topic]
-source /home/ec2-user/.bash_profile
+source /home/ec2-user/kafka_oauth.env
 TOPIC="${1:-$KAFKA_TOPIC}"
 
 echo "=================================================================="

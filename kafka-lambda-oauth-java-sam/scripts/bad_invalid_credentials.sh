@@ -2,7 +2,7 @@
 # Negative test: a bad actor with INVALID credentials / token.
 #  (a) Cognito rejects a bogus username/password (no token is issued).
 #  (b) The brokers reject a connection presenting an invalid OAuth token.
-source /home/ec2-user/.bash_profile
+source /home/ec2-user/kafka_oauth.env
 
 echo "=================================================================="
 echo " Negative test: INVALID credentials / token"

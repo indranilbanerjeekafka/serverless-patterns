@@ -924,8 +924,11 @@ Resources:
               cp "$PATTERN_DIR"/scripts/*.sh /home/ec2-user/scripts/
               chmod +x /home/ec2-user/scripts/*.sh
 
-              # Export environment used by all helper scripts
-              cat >> /home/ec2-user/.bash_profile <<EOF
+              # Export environment used by all helper scripts. Written to a dedicated
+              # env file (not just .bash_profile) so scripts can source only these
+              # clean exports without pulling in /etc/profile.d scripts that return
+              # non-zero and would abort a script running under 'set -e'.
+              cat > /home/ec2-user/kafka_oauth.env <<EOF
               export AWS_REGION=$AWS_REGION
               export USER_POOL_ID=$USER_POOL_ID
               export APP_CLIENT_ID=$APP_CLIENT_ID
@@ -940,6 +943,8 @@ Resources:
               export PRODUCER_SECRET_NAME=$PRODUCER_SECRET_NAME
               export CONSUMER_SECRET_NAME=$CONSUMER_SECRET_NAME
               EOF
+              # Make the same env available in interactive login shells too
+              echo "source /home/ec2-user/kafka_oauth.env" >> /home/ec2-user/.bash_profile
 
               # Substitute the SAM template placeholders
               cd "$PATTERN_DIR"
