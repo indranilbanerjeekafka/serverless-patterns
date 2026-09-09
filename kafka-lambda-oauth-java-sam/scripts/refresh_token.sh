@@ -27,6 +27,7 @@ if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
 fi
 
 cat > "$OUT" <<EOF
+bootstrap.servers=$BOOTSTRAP_SERVERS
 security.protocol=SASL_PLAINTEXT
 sasl.mechanism=OAUTHBEARER
 sasl.login.callback.handler.class=io.strimzi.kafka.oauth.client.JaasClientOauthLoginCallbackHandler
