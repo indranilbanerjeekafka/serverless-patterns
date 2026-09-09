@@ -469,7 +469,7 @@ Resources:
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
               authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
               allow.everyone.if.no.acl.found=false
               super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
@@ -603,7 +603,7 @@ Resources:
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
               authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
               allow.everyone.if.no.acl.found=false
               super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
@@ -737,7 +737,7 @@ Resources:
               sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
-              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" oauth.check.access.token.type="false" unsecuredLoginStringClaim_sub="kafka-broker" ;
               authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
               allow.everyone.if.no.acl.found=false
               super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
