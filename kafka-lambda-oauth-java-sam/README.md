@@ -50,18 +50,19 @@ Key design points:
 
 ## Run the CloudFormation template to create the Kafka cluster, Cognito User Pool and client EC2 machine
 
-Deploy the file `KafkaBrokersCognitoClientEC2.yaml` from the AWS CloudFormation console (or via the CLI). You must supply:
+Deploy the file `KafkaBrokersCognitoClientEC2.yaml` from the AWS CloudFormation console (or via the CLI). There are **no password parameters** — the three role users' passwords are generated and stored in AWS Secrets Manager. You may optionally override the usernames:
 
-* **CognitoAdminUsername** - Username for the Cognito admin user (default `kafka-admin`).
-* **CognitoAdminPassword** - Password for the Cognito admin user. Must satisfy the pool password policy: minimum 8 characters, with at least one upper case letter, one lower case letter and one number. **Do not use a comma in the password** (it is passed through `--auth-parameters` on the client instance).
+* **AdminUsername** - Cognito username for the admin client (default `kafka-admin`) — a Kafka super user that can create topics and manage ACLs.
+* **ProducerUsername** - Cognito username for the producer client (default `kafka-producer`) — authorized to `WRITE` to topics only.
+* **ConsumerUsername** - Cognito username for the consumer client (default `kafka-consumer`) — authorized to `READ` from topics only.
 
 You can keep the defaults for the remaining parameters or adjust them (Java version, Kafka download URL, Strimzi/Nimbus library versions, Kafka topic name, etc.). Wait for the stack to reach `CREATE_COMPLETE`.
 
 This template creates:
 * A VPC with 1 public and 3 private subnets, an Internet Gateway and a NAT Gateway.
-* 3 Kafka broker EC2 instances (KRaft mode, OAUTHBEARER auth) in the private subnets.
-* An Amazon Cognito User Pool, app client and admin user.
-* A client EC2 instance in the public subnet with Java, Maven, Docker, the AWS CLI, the AWS SAM CLI, Kafka CLI tools and the Strimzi OAuth client libraries installed.
+* 3 Kafka broker EC2 instances (KRaft mode, SASL/OAUTHBEARER auth, `StandardAuthorizer` with ACLs) in the private subnets.
+* An Amazon Cognito User Pool, one app client, and **three users** (admin / producer / consumer) whose passwords are generated into **Secrets Manager**.
+* A client EC2 instance in the public subnet with Java, Maven, Docker, the AWS CLI, the AWS SAM CLI, Kafka CLI tools, the Strimzi OAuth client libraries, the built producer/consumer JSON apps, and the helper scripts installed.
 * An EC2 Instance Connect Endpoint for SSH access.
 
 > **Note on library versions:** The brokers download the Strimzi `kafka-oauth-*` libraries and `nimbus-jose-jwt` from Maven Central at boot (versions are CloudFormation parameters). If you change the Apache Kafka version, you may need to pick a compatible Strimzi OAuth version.
@@ -70,23 +71,61 @@ This template creates:
 
 * [Check the broker setup] - On each broker instance the setup log is at `/var/log/kafka-broker-setup.log` and Kafka runs as a systemd service (`sudo systemctl status kafka`).
 
-* [Check if the Kafka topic was created] - On the client instance (in `/home/ec2-user`) run `cat kafka_topic_creator_output.txt`. You should see the topic listed. If the file is missing, empty or shows an error (for example because the brokers were not ready yet), re-run `./kafka_topic_creator.sh`.
+* [Check the bootstrap output] - On the client instance (in `/home/ec2-user`) run `cat bootstrap_acls_output.txt`. This shows the admin client creating the default topic and applying the producer/consumer ACLs. If it shows an error (for example because the brokers were not ready yet), re-run `bash scripts/admin_create_topic.sh $KAFKA_TOPIC`.
 
-## How authentication works
+## Authentication and authorization model
 
-The client instance stores the Cognito details in `/home/ec2-user/.bash_profile` and provides a helper script `refresh_token.sh` that:
+The pattern uses **three Cognito users**, one per role, mapped to Kafka principals via the token's `username` claim:
 
-1. Calls `aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH ...` with the admin username/password to obtain a JWT **access token**.
-2. Writes `/home/ec2-user/kafka/config/client.properties` with:
+| Role | Cognito user (default) | Kafka principal | Allowed |
+|---|---|---|---|
+| Admin | `kafka-admin` | `User:kafka-admin` | Super user — create topics/partitions, manage ACLs, everything |
+| Producer | `kafka-producer` | `User:kafka-producer` | `WRITE` to topics only |
+| Consumer | `kafka-consumer` | `User:kafka-consumer` | `READ` from topics + `READ` on consumer groups |
 
-   ```properties
-   security.protocol=SASL_PLAINTEXT
-   sasl.mechanism=OAUTHBEARER
-   sasl.login.callback.handler.class=io.strimzi.kafka.oauth.client.JaasClientOauthLoginCallbackHandler
-   sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.access.token="<JWT>" ;
-   ```
+The brokers enforce this with the KRaft `StandardAuthorizer` (`allow.everyone.if.no.acl.found=false`, `super.users=User:ANONYMOUS;User:kafka-admin`). The `ANONYMOUS` super user covers the PLAINTEXT inter-broker/controller listeners; the admin user is the super user that bootstraps topics and ACLs on the SASL client listener.
 
-Cognito access tokens are valid for 1 hour, so `kafka_topic_creator.sh` and `kafka_message_sender.sh` both call `refresh_token.sh` first to write a fresh token before talking to the cluster.
+Each user's password is generated into **Secrets Manager** (never a CloudFormation parameter). The helper script `scripts/refresh_token.sh <role>` fetches that role's password from Secrets Manager, exchanges it for a Cognito **access token** via `initiate-auth` (`USER_PASSWORD_AUTH`), and writes a per-role `client.properties`:
+
+```properties
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=OAUTHBEARER
+sasl.login.callback.handler.class=io.strimzi.kafka.oauth.client.JaasClientOauthLoginCallbackHandler
+sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.access.token="<JWT>" ;
+```
+
+Cognito access tokens last 1 hour; every helper script refreshes the token before talking to the cluster, so you don't manage tokens by hand.
+
+## Producer, consumer and admin clients
+
+The pattern ships a small Java project (`kafka_json_apps/`, built into a shaded jar on the client instance) plus wrapper scripts in `/home/ec2-user/scripts`:
+
+* **Admin — create a topic** (only the admin user is authorized):
+  ```bash
+  bash scripts/admin_create_topic.sh <topic-name> [partitions]
+  ```
+  Creates the topic and grants `WRITE` to the producer and `READ` to the consumer on it.
+
+* **Producer — send Faker-generated JSON** (`firstName`, `lastName`, `streetAddress`, `apartmentNumber`, `city`, `state`, `zip`, `phoneNumber`, `email`):
+  ```bash
+  bash scripts/producer_send.sh <topic-name> <number-of-messages>
+  ```
+
+* **Consumer — receive and pretty-print each JSON message**:
+  ```bash
+  bash scripts/consumer_receive.sh <topic-name> [group-id]
+  ```
+
+### Negative tests (bad actors)
+
+* **Invalid credentials / token** — Cognito rejects a bogus username/password, and the brokers reject an invalid OAuth token:
+  ```bash
+  bash scripts/bad_invalid_credentials.sh
+  ```
+* **Valid user, unauthorized operation** — producer tries to create a topic, consumer tries to produce, producer tries to consume; each is denied by the broker authorizer:
+  ```bash
+  bash scripts/bad_unauthorized_operations.sh [topic-name]
+  ```
 
 ## Pre-requisites to deploy the sample Lambda function
 
@@ -133,19 +172,19 @@ The `sam deploy --guided` command walks you through a series of prompts:
 
 ## Test the sample application
 
-Once the Lambda function is deployed (and once OAuth support for the event source is available and configured), send some Kafka messages on the topic.
-
-On the client EC2 machine:
+You can exercise the cluster end-to-end with the OAuth producer/consumer clients regardless of the Lambda event source. On the client EC2 machine, open two shells:
 
 ```bash
+# shell 1 - consume and pretty-print messages
 cd /home/ec2-user
-sh kafka_message_sender.sh
->My first message
->My second message
->My third message
-...
->Ctrl-C
+bash scripts/consumer_receive.sh $KAFKA_TOPIC
+
+# shell 2 - publish 20 Faker-generated JSON messages
+cd /home/ec2-user
+bash scripts/producer_send.sh $KAFKA_TOPIC 20
 ```
+
+Once the Lambda function is deployed (and once OAuth support for the self-managed Kafka event source is available and configured), the same messages will also invoke the Lambda function.
 
 Either send at least 10 messages or wait 300 seconds (see `BatchSize: 10` and `MaximumBatchingWindowInSeconds: 300` in `template.yaml`).
 

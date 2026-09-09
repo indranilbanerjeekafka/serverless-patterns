@@ -6,18 +6,21 @@ Description: >
   the AWS SAM CLI so that the accompanying Lambda pattern can be built, deployed and tested.
 
 Parameters:
-  CognitoAdminUsername:
+  AdminUsername:
     Type: String
-    Description: Username of the Cognito User Pool user that the Kafka client will authenticate as.
+    Description: Cognito username for the Kafka ADMIN client (super user - may create topics and manage ACLs).
     Default: kafka-admin
     MinLength: 1
-  CognitoAdminPassword:
+  ProducerUsername:
     Type: String
-    Description: >
-      Password for the Cognito User Pool admin user. Must satisfy the pool password policy
-      (minimum 8 characters, with upper case, lower case and a number).
-    NoEcho: true
-    MinLength: 8
+    Description: Cognito username for the Kafka PRODUCER client (authorized to WRITE to topics only).
+    Default: kafka-producer
+    MinLength: 1
+  ConsumerUsername:
+    Type: String
+    Description: Cognito username for the Kafka CONSUMER client (authorized to READ from topics only).
+    Default: kafka-consumer
+    MinLength: 1
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64'
@@ -237,11 +240,64 @@ Resources:
       TokenValidityUnits:
         AccessToken: hours
 
+  # ---- Generated passwords for the three role users (kept in Secrets Manager,
+  #      never passed as CloudFormation parameters). The template stores a JSON
+  #      { "username": ..., "password": ... } for each role. ----
+  AdminUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}-kafka-admin-credentials"
+      Description: Cognito credentials for the Kafka admin client
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${AdminUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 20
+        RequireEachIncludedType: true
+        ExcludePunctuation: true
+
+  ProducerUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}-kafka-producer-credentials"
+      Description: Cognito credentials for the Kafka producer client
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${ProducerUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 20
+        RequireEachIncludedType: true
+        ExcludePunctuation: true
+
+  ConsumerUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${AWS::StackName}-kafka-consumer-credentials"
+      Description: Cognito credentials for the Kafka consumer client
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${ConsumerUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 20
+        RequireEachIncludedType: true
+        ExcludePunctuation: true
+
   CognitoAdminUser:
     Type: AWS::Cognito::UserPoolUser
     Properties:
       UserPoolId: !Ref CognitoUserPool
-      Username: !Ref CognitoAdminUsername
+      Username: !Ref AdminUsername
+      MessageAction: SUPPRESS
+
+  CognitoProducerUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      Username: !Ref ProducerUsername
+      MessageAction: SUPPRESS
+
+  CognitoConsumerUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      Username: !Ref ConsumerUsername
       MessageAction: SUPPRESS
 
   # ---- Security Groups ----
@@ -310,6 +366,18 @@ Resources:
                   - 'cognito-idp:DescribeUserPool'
                   - 'cognito-idp:DescribeUserPoolClient'
                 Resource: '*'
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:DescribeSecret'
+                Resource:
+                  - !Ref AdminUserSecret
+                  - !Ref ProducerUserSecret
+                  - !Ref ConsumerUserSecret
 
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -354,6 +422,7 @@ Resources:
               STRIMZI_VERSION=${strimzi_version}
               NIMBUS_VERSION=${nimbus_version}
               KAFKA_CLUSTER_ID=${kafka_cluster_id}
+              ADMIN_USERNAME=${admin_username}
 
               install_pkg() {
                 for i in 1 2 3 4 5; do
@@ -401,6 +470,9 @@ Resources:
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
               listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
+              allow.everyone.if.no.acl.found=false
+              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -447,6 +519,7 @@ Resources:
               strimzi_version: !Ref StrimziOAuthVersion
               nimbus_version: !Ref NimbusJoseJwtVersion
               kafka_cluster_id: !Ref KafkaClusterId
+              admin_username: !Ref AdminUsername
 
   KafkaBroker2:
     Type: AWS::EC2::Instance
@@ -483,6 +556,7 @@ Resources:
               STRIMZI_VERSION=${strimzi_version}
               NIMBUS_VERSION=${nimbus_version}
               KAFKA_CLUSTER_ID=${kafka_cluster_id}
+              ADMIN_USERNAME=${admin_username}
 
               install_pkg() {
                 for i in 1 2 3 4 5; do
@@ -530,6 +604,9 @@ Resources:
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
               listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
+              allow.everyone.if.no.acl.found=false
+              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -576,6 +653,7 @@ Resources:
               strimzi_version: !Ref StrimziOAuthVersion
               nimbus_version: !Ref NimbusJoseJwtVersion
               kafka_cluster_id: !Ref KafkaClusterId
+              admin_username: !Ref AdminUsername
 
   KafkaBroker3:
     Type: AWS::EC2::Instance
@@ -612,6 +690,7 @@ Resources:
               STRIMZI_VERSION=${strimzi_version}
               NIMBUS_VERSION=${nimbus_version}
               KAFKA_CLUSTER_ID=${kafka_cluster_id}
+              ADMIN_USERNAME=${admin_username}
 
               install_pkg() {
                 for i in 1 2 3 4 5; do
@@ -659,6 +738,9 @@ Resources:
               listener.name.client.sasl.enabled.mechanisms=OAUTHBEARER
               listener.name.client.oauthbearer.sasl.server.callback.handler.class=io.strimzi.kafka.oauth.server.JaasServerOauthValidatorCallbackHandler
               listener.name.client.oauthbearer.sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.jwks.endpoint.uri="$JWKS" oauth.valid.issuer.uri="$ISSUER" oauth.username.claim="username" unsecuredLoginStringClaim_sub="kafka-broker" ;
+              authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
+              allow.everyone.if.no.acl.found=false
+              super.users=User:ANONYMOUS;User:$ADMIN_USERNAME
               num.partitions=3
               offsets.topic.replication.factor=3
               transaction.state.log.replication.factor=3
@@ -705,10 +787,20 @@ Resources:
               strimzi_version: !Ref StrimziOAuthVersion
               nimbus_version: !Ref NimbusJoseJwtVersion
               kafka_cluster_id: !Ref KafkaClusterId
+              admin_username: !Ref AdminUsername
 
   KafkaClientEC2Instance:
     Type: AWS::EC2::Instance
-    DependsOn: [KafkaBroker1, KafkaBroker2, KafkaBroker3, CognitoAdminUser]
+    DependsOn:
+      - KafkaBroker1
+      - KafkaBroker2
+      - KafkaBroker3
+      - CognitoAdminUser
+      - CognitoProducerUser
+      - CognitoConsumerUser
+      - AdminUserSecret
+      - ProducerUserSecret
+      - ConsumerUserSecret
     Properties:
       InstanceType: m5.large
       IamInstanceProfile: !Ref EC2InstanceProfile
@@ -740,13 +832,19 @@ Resources:
               KAFKA_TOPIC=${kafka_topic}
               USER_POOL_ID=${user_pool_id}
               APP_CLIENT_ID=${app_client_id}
-              COGNITO_USER=${cognito_user}
-              COGNITO_PASSWORD='${cognito_password}'
+              ADMIN_USERNAME=${admin_username}
+              PRODUCER_USERNAME=${producer_username}
+              CONSUMER_USERNAME=${consumer_username}
+              ADMIN_SECRET_NAME=${admin_secret}
+              PRODUCER_SECRET_NAME=${producer_secret}
+              CONSUMER_SECRET_NAME=${consumer_secret}
               SUBNET1=${subnet1}
               SUBNET2=${subnet2}
               SUBNET3=${subnet3}
               LAMBDA_SG=${lambda_sg}
               SERVERLESS_LAND_GITHUB_LOCATION=${serverless_land_github_location}
+              KAFKA_HOME=/home/ec2-user/kafka
+              KAFKA_JSON_APPS_JAR=/home/ec2-user/kafka-json-apps.jar
 
               install_pkg() {
                 for i in 1 2 3 4 5; do
@@ -804,66 +902,38 @@ Resources:
               wget -q $MVN/io/strimzi/kafka-oauth-client/$STRIMZI_VERSION/kafka-oauth-client-$STRIMZI_VERSION.jar
               wget -q $MVN/com/nimbusds/nimbus-jose-jwt/$NIMBUS_VERSION/nimbus-jose-jwt-$NIMBUS_VERSION.jar
 
+              # Clone the serverless pattern (Java apps + scripts + SAM template)
+              cd /home/ec2-user
+              git clone $SERVERLESS_LAND_GITHUB_LOCATION
+              PATTERN_DIR=/home/ec2-user/serverless-patterns/kafka-lambda-oauth-java-sam
+
+              # Build the producer/consumer JSON apps (shaded jar) and install scripts
+              cd "$PATTERN_DIR/kafka_json_apps"
+              mvn -q -DskipTests package || mvn -DskipTests package
+              cp target/kafka-json-apps.jar "$KAFKA_JSON_APPS_JAR"
+              mkdir -p /home/ec2-user/scripts
+              cp "$PATTERN_DIR"/scripts/*.sh /home/ec2-user/scripts/
+              chmod +x /home/ec2-user/scripts/*.sh
+
+              # Export environment used by all helper scripts
               cat >> /home/ec2-user/.bash_profile <<EOF
               export AWS_REGION=$AWS_REGION
               export USER_POOL_ID=$USER_POOL_ID
               export APP_CLIENT_ID=$APP_CLIENT_ID
-              export COGNITO_USER=$COGNITO_USER
-              export COGNITO_PASSWORD='$COGNITO_PASSWORD'
               export BOOTSTRAP_SERVERS=$BOOTSTRAP_SERVERS
               export KAFKA_TOPIC=$KAFKA_TOPIC
+              export KAFKA_HOME=$KAFKA_HOME
+              export KAFKA_JSON_APPS_JAR=$KAFKA_JSON_APPS_JAR
+              export ADMIN_USERNAME=$ADMIN_USERNAME
+              export PRODUCER_USERNAME=$PRODUCER_USERNAME
+              export CONSUMER_USERNAME=$CONSUMER_USERNAME
+              export ADMIN_SECRET_NAME=$ADMIN_SECRET_NAME
+              export PRODUCER_SECRET_NAME=$PRODUCER_SECRET_NAME
+              export CONSUMER_SECRET_NAME=$CONSUMER_SECRET_NAME
               EOF
 
-              # Set a permanent password for the Cognito admin user
-              aws cognito-idp admin-set-user-password --region "$AWS_REGION" --user-pool-id "$USER_POOL_ID" --username "$COGNITO_USER" --password "$COGNITO_PASSWORD" --permanent
-
-              # Helper: fetch a fresh Cognito access token and (re)write client.properties
-              cat > /home/ec2-user/refresh_token.sh <<'SCRIPT'
-              #!/bin/bash
-              source /home/ec2-user/.bash_profile
-              TOKEN=$(aws cognito-idp initiate-auth --region "$AWS_REGION" --auth-flow USER_PASSWORD_AUTH --client-id "$APP_CLIENT_ID" --auth-parameters USERNAME="$COGNITO_USER",PASSWORD="$COGNITO_PASSWORD" --query 'AuthenticationResult.AccessToken' --output text)
-              if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
-                echo "ERROR: failed to obtain Cognito access token"; exit 1
-              fi
-              cat > /home/ec2-user/kafka/config/client.properties <<EOC
-              security.protocol=SASL_PLAINTEXT
-              sasl.mechanism=OAUTHBEARER
-              sasl.login.callback.handler.class=io.strimzi.kafka.oauth.client.JaasClientOauthLoginCallbackHandler
-              sasl.jaas.config=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required oauth.access.token="$TOKEN" ;
-              EOC
-              echo "Wrote /home/ec2-user/kafka/config/client.properties with a fresh access token"
-              SCRIPT
-              chmod +x /home/ec2-user/refresh_token.sh
-
-              cat > /home/ec2-user/kafka_topic_creator.sh <<'SCRIPT'
-              #!/bin/bash
-              source /home/ec2-user/.bash_profile
-              /home/ec2-user/refresh_token.sh
-              /home/ec2-user/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server "$BOOTSTRAP_SERVERS" --command-config /home/ec2-user/kafka/config/client.properties --replication-factor 3 --partitions 3 --topic "$KAFKA_TOPIC"
-              /home/ec2-user/kafka/bin/kafka-topics.sh --list --bootstrap-server "$BOOTSTRAP_SERVERS" --command-config /home/ec2-user/kafka/config/client.properties
-              SCRIPT
-              chmod +x /home/ec2-user/kafka_topic_creator.sh
-
-              cat > /home/ec2-user/kafka_message_sender.sh <<'SCRIPT'
-              #!/bin/bash
-              source /home/ec2-user/.bash_profile
-              /home/ec2-user/refresh_token.sh
-              /home/ec2-user/kafka/bin/kafka-console-producer.sh --bootstrap-server "$BOOTSTRAP_SERVERS" --producer.config /home/ec2-user/kafka/config/client.properties --topic "$KAFKA_TOPIC"
-              SCRIPT
-              chmod +x /home/ec2-user/kafka_message_sender.sh
-
-              # Wait for the brokers to come up, then create the topic
-              for i in $(seq 1 30); do
-                if nc -z 10.0.1.10 9092 && nc -z 10.0.2.10 9092 && nc -z 10.0.3.10 9092; then
-                  echo "brokers reachable"; break
-                fi
-                echo "waiting for brokers... ($i)"; sleep 20
-              done
-
-              # Checkout the serverless pattern and substitute the SAM template placeholders
-              cd /home/ec2-user
-              git clone $SERVERLESS_LAND_GITHUB_LOCATION
-              cd ./serverless-patterns/kafka-lambda-oauth-java-sam
+              # Substitute the SAM template placeholders
+              cd "$PATTERN_DIR"
               cp template_original.yaml template.yaml
               sed -i "s|BOOTSTRAP_SERVER_1|10.0.1.10:9092|g" template.yaml
               sed -i "s|BOOTSTRAP_SERVER_2|10.0.2.10:9092|g" template.yaml
@@ -875,8 +945,42 @@ Resources:
               sed -i "s|KAFKA_TOPIC|$KAFKA_TOPIC|g" template.yaml
               sed -i "s|JAVA_VERSION|$JAVA_VERSION|g" template.yaml
 
+              # Set permanent passwords for the three Cognito role users from Secrets Manager
+              set_password() {
+                local username="$1" secret="$2" pw
+                pw="$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "$secret" --query SecretString --output text | jq -r .password)"
+                aws cognito-idp admin-set-user-password --region "$AWS_REGION" --user-pool-id "$USER_POOL_ID" --username "$username" --password "$pw" --permanent
+              }
+              set_password "$ADMIN_USERNAME" "$ADMIN_SECRET_NAME"
+              set_password "$PRODUCER_USERNAME" "$PRODUCER_SECRET_NAME"
+              set_password "$CONSUMER_USERNAME" "$CONSUMER_SECRET_NAME"
+
               chown -R ec2-user:ec2-user /home/ec2-user
-              sudo -u ec2-user bash /home/ec2-user/kafka_topic_creator.sh > /home/ec2-user/kafka_topic_creator_output.txt 2>&1 || true
+
+              # Wait for the brokers' SASL listeners to accept connections
+              for i in $(seq 1 40); do
+                if nc -z 10.0.1.10 9092 && nc -z 10.0.2.10 9092 && nc -z 10.0.3.10 9092; then
+                  echo "brokers reachable"; break
+                fi
+                echo "waiting for brokers... ($i)"; sleep 15
+              done
+
+              # Bootstrap authorization: admin grants the consumer group-read ACL and
+              # creates the default topic (with producer WRITE / consumer READ ACLs).
+              bootstrap_acls() {
+                local props
+                props="$(sudo -u ec2-user bash /home/ec2-user/scripts/refresh_token.sh admin)" || return 1
+                "$KAFKA_HOME"/bin/kafka-acls.sh --bootstrap-server "$BOOTSTRAP_SERVERS" --command-config "$props" \
+                  --add --allow-principal "User:$CONSUMER_USERNAME" --operation Read --group '*' || return 1
+                sudo -u ec2-user bash /home/ec2-user/scripts/admin_create_topic.sh "$KAFKA_TOPIC" 3 || return 1
+              }
+              for i in 1 2 3 4 5 6 7 8; do
+                if bootstrap_acls > /home/ec2-user/bootstrap_acls_output.txt 2>&1; then
+                  echo "ACL/topic bootstrap succeeded"; break
+                fi
+                echo "bootstrap attempt $i failed; retrying in 20s..."; sleep 20
+              done
+              chown -R ec2-user:ec2-user /home/ec2-user
             - java_version: !Ref JavaVersion
               region: !Ref 'AWS::Region'
               kafka_installer: !Ref ApacheKafkaInstallerLocation
@@ -890,8 +994,12 @@ Resources:
               kafka_topic: !Ref KafkaTopicForLambda
               user_pool_id: !Ref CognitoUserPool
               app_client_id: !Ref CognitoUserPoolClient
-              cognito_user: !Ref CognitoAdminUsername
-              cognito_password: !Ref CognitoAdminPassword
+              admin_username: !Ref AdminUsername
+              producer_username: !Ref ProducerUsername
+              consumer_username: !Ref ConsumerUsername
+              admin_secret: !Ref AdminUserSecret
+              producer_secret: !Ref ProducerUserSecret
+              consumer_secret: !Ref ConsumerUserSecret
               subnet1: !Ref PrivateSubnetOne
               subnet2: !Ref PrivateSubnetTwo
               subnet3: !Ref PrivateSubnetThree
@@ -956,6 +1064,24 @@ Outputs:
     Value: !Ref KafkaTopicForLambda
     Export:
       Name: !Sub "${AWS::StackName}-KafkaTopicForLambda"
+  AdminUsername:
+    Description: Cognito username of the Kafka admin (super user)
+    Value: !Ref AdminUsername
+  ProducerUsername:
+    Description: Cognito username of the Kafka producer (WRITE only)
+    Value: !Ref ProducerUsername
+  ConsumerUsername:
+    Description: Cognito username of the Kafka consumer (READ only)
+    Value: !Ref ConsumerUsername
+  AdminSecretArn:
+    Description: Secrets Manager secret holding the admin user's generated password
+    Value: !Ref AdminUserSecret
+  ProducerSecretArn:
+    Description: Secrets Manager secret holding the producer user's generated password
+    Value: !Ref ProducerUserSecret
+  ConsumerSecretArn:
+    Description: Secrets Manager secret holding the consumer user's generated password
+    Value: !Ref ConsumerUserSecret
   EC2InstanceEndpointID:
     Description: The ID of the EC2 Instance Connect Endpoint
     Value: !Ref EC2InstanceEndpoint
