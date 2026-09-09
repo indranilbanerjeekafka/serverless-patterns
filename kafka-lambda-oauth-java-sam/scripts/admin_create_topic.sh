@@ -4,7 +4,9 @@
 # Only the admin user (a Kafka super user) is allowed to do this.
 #
 # Usage: admin_create_topic.sh <topic> [partitions]
-set -euo pipefail
+# Note: not using 'set -u' - sourcing the profile pulls in /etc/bashrc which
+# references an unset variable on Amazon Linux 2023.
+set -eo pipefail
 source /home/ec2-user/.bash_profile
 
 TOPIC="${1:?usage: admin_create_topic.sh <topic> [partitions]}"

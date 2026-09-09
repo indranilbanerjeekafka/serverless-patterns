@@ -4,7 +4,9 @@
 #
 # Usage: refresh_token.sh <admin|producer|consumer> [output-file]
 # Prints the path of the written properties file on stdout.
-set -euo pipefail
+# Note: intentionally not using 'set -u' - sourcing the profile pulls in
+# /etc/bashrc which references an unset variable on Amazon Linux 2023.
+set -eo pipefail
 source /home/ec2-user/.bash_profile
 
 ROLE="${1:?usage: refresh_token.sh <admin|producer|consumer> [output-file]}"

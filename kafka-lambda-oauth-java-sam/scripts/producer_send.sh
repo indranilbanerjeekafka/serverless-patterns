@@ -3,7 +3,9 @@
 # using the producer user's OAuth token. This user is only allowed to WRITE.
 #
 # Usage: producer_send.sh <topic> <count>
-set -euo pipefail
+# Note: not using 'set -u' - sourcing the profile pulls in /etc/bashrc which
+# references an unset variable on Amazon Linux 2023.
+set -eo pipefail
 source /home/ec2-user/.bash_profile
 
 TOPIC="${1:?usage: producer_send.sh <topic> <count>}"
