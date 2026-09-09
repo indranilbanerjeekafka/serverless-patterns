@@ -1147,7 +1147,11 @@ Resources:
   EC2InstanceEndpoint:
     Type: AWS::EC2::InstanceConnectEndpoint
     Properties:
-      PreserveClientIp: true
+      # PreserveClientIp must be false so the endpoint reaches the instance from
+      # its own ENI (a VPC-private IP allowed by the instance security group).
+      # With it true, the instance sees the caller's real public IP, which the
+      # security group (which only allows the VPC CIDR on port 22) would drop.
+      PreserveClientIp: false
       SecurityGroupIds:
         - !GetAtt KafkaClientInstanceSecurityGroup.GroupId
       SubnetId: !Ref PublicSubnetOne
