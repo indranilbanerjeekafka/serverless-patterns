@@ -57,20 +57,6 @@ Parameters:
   ServerlessLandGithubLocation:
     Type: String
     Default: https://github.com/aws-samples/serverless-patterns/
-  Ec2InstanceConnectPrefixListId:
-    Type: String
-    Description: >
-      AWS-managed prefix list ID for the EC2 Instance Connect service in this region
-      (com.amazonaws.<region>.ec2-instance-connect). Allows the browser-based
-      "EC2 Instance Connect" console option to reach the public client instance.
-      The default is the us-west-2 value; override it for other regions, or set it
-      to an empty string to skip the rule (the EC2 Instance Connect Endpoint still works).
-      Find yours with:
-      aws ec2 describe-managed-prefix-lists --filters Name=prefix-list-name,Values=com.amazonaws.<region>.ec2-instance-connect
-    Default: pl-047d464325e7bf465
-
-Conditions:
-  HasEicPrefixList: !Not [!Equals [!Ref Ec2InstanceConnectPrefixListId, ""]]
 
 Mappings:
   SubnetConfig:
@@ -345,21 +331,6 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: !FindInMap ['SubnetConfig', 'VPC', 'CIDR']
-
-  # Allow the browser-based "EC2 Instance Connect" option to SSH into the public
-  # client instance (it connects from the EC2 Instance Connect service IP range).
-  # The private brokers have no public IP, so they must be reached via the EC2
-  # Instance Connect Endpoint instead.
-  KafkaClientEic22Ingress:
-    Type: AWS::EC2::SecurityGroupIngress
-    Condition: HasEicPrefixList
-    Properties:
-      GroupId: !GetAtt KafkaClientInstanceSecurityGroup.GroupId
-      IpProtocol: tcp
-      FromPort: 22
-      ToPort: 22
-      SourcePrefixListId: !Ref Ec2InstanceConnectPrefixListId
-      Description: SSH from the EC2 Instance Connect service prefix list
 
   # ---- IAM role / instance profile for the EC2 instances ----
   EC2Role:
@@ -965,6 +936,7 @@ Resources:
               SUBNET3=${subnet3}
               LAMBDA_SG=${lambda_sg}
               SERVERLESS_LAND_GITHUB_LOCATION=${serverless_land_github_location}
+              CLIENT_SG=${client_sg}
               KAFKA_HOME=/home/ec2-user/kafka
               KAFKA_JSON_APPS_JAR=/home/ec2-user/kafka-json-apps.jar
 
@@ -1015,6 +987,17 @@ Resources:
               wget -q https://github.com/aws/aws-sam-cli/releases/latest/download/aws-sam-cli-linux-x86_64.zip
               unzip -q aws-sam-cli-linux-x86_64.zip -d sam-installation
               ./sam-installation/install || ./sam-installation/install --update
+
+              # Allow the browser-based "EC2 Instance Connect" console option to SSH
+              # into this public client instance. Look up THIS region's EC2 Instance
+              # Connect service prefix list and authorize port 22 from it (region
+              # agnostic - no hardcoded IDs). The private brokers have no public IP,
+              # so use the EC2 Instance Connect Endpoint to reach them instead.
+              EIC_PL=$(aws ec2 describe-managed-prefix-lists --region "$AWS_REGION" --filters "Name=prefix-list-name,Values=com.amazonaws.$AWS_REGION.ec2-instance-connect" --query "PrefixLists[0].PrefixListId" --output text 2>/dev/null || true)
+              if [ -n "$EIC_PL" ] && [ "$EIC_PL" != "None" ]; then
+                aws ec2 authorize-security-group-ingress --region "$AWS_REGION" --group-id "$CLIENT_SG" --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,PrefixListIds=[{PrefixListId=$EIC_PL}]" 2>/dev/null || true
+                echo "Authorized SSH from EC2 Instance Connect prefix list $EIC_PL on $CLIENT_SG"
+              fi
 
               # Kafka CLI tools + Strimzi client OAuth libraries
               cd /home/ec2-user
@@ -1171,6 +1154,7 @@ Resources:
               subnet2: !Ref PrivateSubnetTwo
               subnet3: !Ref PrivateSubnetThree
               lambda_sg: !GetAtt KafkaBrokerSecurityGroup.GroupId
+              client_sg: !GetAtt KafkaClientInstanceSecurityGroup.GroupId
               serverless_land_github_location: !Ref ServerlessLandGithubLocation
 
   EC2InstanceEndpoint:
