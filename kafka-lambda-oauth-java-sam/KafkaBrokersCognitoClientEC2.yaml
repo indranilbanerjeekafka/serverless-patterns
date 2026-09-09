@@ -437,11 +437,42 @@ Resources:
               cd /home/ec2-user
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
-              for attempt in 1 2 3 4 5 6; do
-                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
-                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
-              done
-              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              # Download Kafka once (broker 1 seeds it to an S3 cache); the other
+              # brokers and the client fetch it from S3 in-region instead of each
+              # pulling the throttled archive.apache.org copy. The cache bucket
+              # persists across redeploys, so later deploys skip the download.
+              KCREGION=${region}
+              ACCOUNT_ID=$(aws sts get-caller-identity --region "$KCREGION" --query Account --output text)
+              KAFKA_CACHE_BUCKET="kafka-oauth-cache-$ACCOUNT_ID-$KCREGION"
+              KAFKA_S3_URI="s3://$KAFKA_CACHE_BUCKET/kafka/$KAFKA_TGZ"
+              SEEDER=false
+              if [ "$NODE_ID" = "1" ]; then SEEDER=true; fi
+              download_from_archive() {
+                for attempt in 1 2 3 4 5 6; do
+                  wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && return 0
+                  echo "Kafka archive download attempt $attempt failed; retrying in 20s..."; sleep 20
+                done
+                return 1
+              }
+              if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                echo "Fetching Kafka from S3 cache $KAFKA_S3_URI"
+                aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION"
+              elif [ "$SEEDER" = "true" ]; then
+                echo "Seeder: downloading Kafka from $KAFKA_URL then publishing to S3"
+                download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+                aws s3 mb "s3://$KAFKA_CACHE_BUCKET" --region "$KCREGION" 2>/dev/null || true
+                aws s3 cp "$KAFKA_TGZ" "$KAFKA_S3_URI" --region "$KCREGION" || true
+              else
+                echo "Waiter: polling S3 cache for Kafka (seeded by broker 1)"
+                for i in $(seq 1 90); do
+                  if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                    aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION" && break
+                  fi
+                  echo "waiting for Kafka in S3 cache... ($i)"; sleep 20
+                done
+                test -s "$KAFKA_TGZ" || download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              fi
+              test -s "$KAFKA_TGZ" || { echo "FATAL: Kafka archive missing"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
 
@@ -571,11 +602,42 @@ Resources:
               cd /home/ec2-user
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
-              for attempt in 1 2 3 4 5 6; do
-                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
-                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
-              done
-              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              # Download Kafka once (broker 1 seeds it to an S3 cache); the other
+              # brokers and the client fetch it from S3 in-region instead of each
+              # pulling the throttled archive.apache.org copy. The cache bucket
+              # persists across redeploys, so later deploys skip the download.
+              KCREGION=${region}
+              ACCOUNT_ID=$(aws sts get-caller-identity --region "$KCREGION" --query Account --output text)
+              KAFKA_CACHE_BUCKET="kafka-oauth-cache-$ACCOUNT_ID-$KCREGION"
+              KAFKA_S3_URI="s3://$KAFKA_CACHE_BUCKET/kafka/$KAFKA_TGZ"
+              SEEDER=false
+              if [ "$NODE_ID" = "1" ]; then SEEDER=true; fi
+              download_from_archive() {
+                for attempt in 1 2 3 4 5 6; do
+                  wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && return 0
+                  echo "Kafka archive download attempt $attempt failed; retrying in 20s..."; sleep 20
+                done
+                return 1
+              }
+              if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                echo "Fetching Kafka from S3 cache $KAFKA_S3_URI"
+                aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION"
+              elif [ "$SEEDER" = "true" ]; then
+                echo "Seeder: downloading Kafka from $KAFKA_URL then publishing to S3"
+                download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+                aws s3 mb "s3://$KAFKA_CACHE_BUCKET" --region "$KCREGION" 2>/dev/null || true
+                aws s3 cp "$KAFKA_TGZ" "$KAFKA_S3_URI" --region "$KCREGION" || true
+              else
+                echo "Waiter: polling S3 cache for Kafka (seeded by broker 1)"
+                for i in $(seq 1 90); do
+                  if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                    aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION" && break
+                  fi
+                  echo "waiting for Kafka in S3 cache... ($i)"; sleep 20
+                done
+                test -s "$KAFKA_TGZ" || download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              fi
+              test -s "$KAFKA_TGZ" || { echo "FATAL: Kafka archive missing"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
 
@@ -705,11 +767,42 @@ Resources:
               cd /home/ec2-user
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
-              for attempt in 1 2 3 4 5 6; do
-                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
-                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
-              done
-              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              # Download Kafka once (broker 1 seeds it to an S3 cache); the other
+              # brokers and the client fetch it from S3 in-region instead of each
+              # pulling the throttled archive.apache.org copy. The cache bucket
+              # persists across redeploys, so later deploys skip the download.
+              KCREGION=${region}
+              ACCOUNT_ID=$(aws sts get-caller-identity --region "$KCREGION" --query Account --output text)
+              KAFKA_CACHE_BUCKET="kafka-oauth-cache-$ACCOUNT_ID-$KCREGION"
+              KAFKA_S3_URI="s3://$KAFKA_CACHE_BUCKET/kafka/$KAFKA_TGZ"
+              SEEDER=false
+              if [ "$NODE_ID" = "1" ]; then SEEDER=true; fi
+              download_from_archive() {
+                for attempt in 1 2 3 4 5 6; do
+                  wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && return 0
+                  echo "Kafka archive download attempt $attempt failed; retrying in 20s..."; sleep 20
+                done
+                return 1
+              }
+              if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                echo "Fetching Kafka from S3 cache $KAFKA_S3_URI"
+                aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION"
+              elif [ "$SEEDER" = "true" ]; then
+                echo "Seeder: downloading Kafka from $KAFKA_URL then publishing to S3"
+                download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+                aws s3 mb "s3://$KAFKA_CACHE_BUCKET" --region "$KCREGION" 2>/dev/null || true
+                aws s3 cp "$KAFKA_TGZ" "$KAFKA_S3_URI" --region "$KCREGION" || true
+              else
+                echo "Waiter: polling S3 cache for Kafka (seeded by broker 1)"
+                for i in $(seq 1 90); do
+                  if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                    aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION" && break
+                  fi
+                  echo "waiting for Kafka in S3 cache... ($i)"; sleep 20
+                done
+                test -s "$KAFKA_TGZ" || download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              fi
+              test -s "$KAFKA_TGZ" || { echo "FATAL: Kafka archive missing"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
 
@@ -898,11 +991,42 @@ Resources:
               cd /home/ec2-user
               KAFKA_TGZ=$(basename "$KAFKA_URL")
               KAFKA_DIR=$(basename "$KAFKA_TGZ" .tgz)
-              for attempt in 1 2 3 4 5 6; do
-                wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && break
-                echo "Kafka download attempt $attempt failed; retrying in 20s..."; sleep 20
-              done
-              test -s "$KAFKA_TGZ" || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              # Download Kafka once (broker 1 seeds it to an S3 cache); the other
+              # brokers and the client fetch it from S3 in-region instead of each
+              # pulling the throttled archive.apache.org copy. The cache bucket
+              # persists across redeploys, so later deploys skip the download.
+              KCREGION=${region}
+              ACCOUNT_ID=$(aws sts get-caller-identity --region "$KCREGION" --query Account --output text)
+              KAFKA_CACHE_BUCKET="kafka-oauth-cache-$ACCOUNT_ID-$KCREGION"
+              KAFKA_S3_URI="s3://$KAFKA_CACHE_BUCKET/kafka/$KAFKA_TGZ"
+              SEEDER=false
+              if [ "$NODE_ID" = "1" ]; then SEEDER=true; fi
+              download_from_archive() {
+                for attempt in 1 2 3 4 5 6; do
+                  wget --timeout=60 --read-timeout=120 --tries=2 -O "$KAFKA_TGZ" "$KAFKA_URL" && test -s "$KAFKA_TGZ" && return 0
+                  echo "Kafka archive download attempt $attempt failed; retrying in 20s..."; sleep 20
+                done
+                return 1
+              }
+              if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                echo "Fetching Kafka from S3 cache $KAFKA_S3_URI"
+                aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION"
+              elif [ "$SEEDER" = "true" ]; then
+                echo "Seeder: downloading Kafka from $KAFKA_URL then publishing to S3"
+                download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+                aws s3 mb "s3://$KAFKA_CACHE_BUCKET" --region "$KCREGION" 2>/dev/null || true
+                aws s3 cp "$KAFKA_TGZ" "$KAFKA_S3_URI" --region "$KCREGION" || true
+              else
+                echo "Waiter: polling S3 cache for Kafka (seeded by broker 1)"
+                for i in $(seq 1 90); do
+                  if aws s3 ls "$KAFKA_S3_URI" --region "$KCREGION" >/dev/null 2>&1; then
+                    aws s3 cp "$KAFKA_S3_URI" "$KAFKA_TGZ" --region "$KCREGION" && break
+                  fi
+                  echo "waiting for Kafka in S3 cache... ($i)"; sleep 20
+                done
+                test -s "$KAFKA_TGZ" || download_from_archive || { echo "FATAL: unable to download Kafka from $KAFKA_URL"; exit 1; }
+              fi
+              test -s "$KAFKA_TGZ" || { echo "FATAL: Kafka archive missing"; exit 1; }
               tar -xzf "$KAFKA_TGZ"
               ln -sfn /home/ec2-user/$KAFKA_DIR /home/ec2-user/kafka
               cd /home/ec2-user/kafka/libs

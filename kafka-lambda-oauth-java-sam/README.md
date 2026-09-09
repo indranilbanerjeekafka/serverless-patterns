@@ -204,3 +204,9 @@ A single Lambda invocation receives a batch of messages as a map, keyed by `topi
    Confirm `y` for both prompts.
 
 2. Delete the CloudFormation stack that created the Kafka brokers, Cognito User Pool and client EC2 instance from the CloudFormation console (select the stack and choose "Delete"). If deletion fails, retry with a Force Delete — ENIs created by the deployed Lambda function in the VPC can occasionally delay VPC deletion even after the function is removed.
+
+3. (Optional) Remove the Kafka download cache bucket. To avoid re-downloading Kafka from the throttled Apache mirror on every deploy, broker 1 caches the Kafka archive in an S3 bucket named `kafka-oauth-cache-<account-id>-<region>`, which is created outside the stack and reused across redeploys. It is not deleted with the stack. Remove it when you're done:
+
+   ```bash
+   aws s3 rb "s3://kafka-oauth-cache-$(aws sts get-caller-identity --query Account --output text)-<region>" --force
+   ```
