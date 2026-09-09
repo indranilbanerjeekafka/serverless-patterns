@@ -868,9 +868,18 @@ Resources:
               service docker start
               usermod -a -G docker ec2-user
 
-              wget -q https://repos.fedorapeople.org/repos/dchen/apache-maven/epel-apache-maven.repo -O /etc/yum.repos.d/epel-apache-maven.repo
-              sed -i s/\$releasever/6/g /etc/yum.repos.d/epel-apache-maven.repo
-              install_pkg apache-maven || yum install -y maven || true
+              # Install Apache Maven from the binary distribution (reliable on AL2023)
+              MAVEN_VERSION=3.9.9
+              cd /home/ec2-user
+              for attempt in 1 2 3 4 5; do
+                wget --timeout=60 --read-timeout=120 --tries=2 -O apache-maven.tar.gz \
+                  "https://archive.apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/apache-maven-$MAVEN_VERSION-bin.tar.gz" && test -s apache-maven.tar.gz && break
+                echo "Maven download attempt $attempt failed; retrying in 15s..."; sleep 15
+              done
+              test -s apache-maven.tar.gz || { echo "FATAL: unable to download Maven"; exit 1; }
+              tar -xzf apache-maven.tar.gz -C /opt
+              ln -sfn /opt/apache-maven-$MAVEN_VERSION /opt/maven
+              ln -sfn /opt/maven/bin/mvn /usr/bin/mvn
 
               # AWS CLI v2
               cd /home/ec2-user
