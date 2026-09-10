@@ -27,6 +27,7 @@
 # secret sections) if you pass the raw values instead of pre-made ARNs.
 # =============================================================================
 set -euo pipefail
+export AWS_PAGER=""   # don't pipe CLI output through a pager (less/vi)
 
 # ---------------------------- Configuration ---------------------------------
 REGION="${AWS_REGION:-us-west-2}"
