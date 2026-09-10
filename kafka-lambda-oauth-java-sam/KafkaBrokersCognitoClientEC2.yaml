@@ -412,6 +412,16 @@ Resources:
                   - !Ref AdminUserSecret
                   - !Ref ProducerUserSecret
                   - !Ref ConsumerUserSecret
+              # Let the CLI Lambda deploy script (run on the client) create the
+              # OAuth + broker-CA secrets it wires into the event source mapping.
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:CreateSecret'
+                  - 'secretsmanager:PutSecretValue'
+                  - 'secretsmanager:TagResource'
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:DescribeSecret'
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}-*'
 
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
