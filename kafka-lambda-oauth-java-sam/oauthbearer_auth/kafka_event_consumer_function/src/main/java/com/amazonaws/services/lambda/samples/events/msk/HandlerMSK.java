@@ -22,17 +22,35 @@ import com.amazonaws.services.lambda.runtime.events.KafkaEvent.KafkaEventRecord;
 
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 public class HandlerMSK implements RequestHandler<KafkaEvent, String>{
 	//We initialize an empty list of the KafkaMessage class
 	List<KafkaMessage> listOfMessages = new ArrayList<KafkaMessage>();
 	Gson gson = new GsonBuilder().setPrettyPrinting().create();
+	// The DynamoDB table to persist messages to is supplied via an environment
+	// variable. When it is not set (e.g. local unit tests) DynamoDB is skipped.
+	private static final String TABLE_NAME = System.getenv("DYNAMODB_TABLE_NAME");
+	private static DynamoDbClient ddbClient;
+
+	private static synchronized DynamoDbClient ddb() {
+		if (ddbClient == null) {
+			ddbClient = DynamoDbClient.create();
+		}
+		return ddbClient;
+	}
 	@Override
 	public String handleRequest(KafkaEvent event, Context context) {
 		LambdaLogger logger = context.getLogger();
@@ -102,9 +120,62 @@ public class HandlerMSK implements RequestHandler<KafkaEvent, String>{
 	            // as well as in Json format using gson.toJson function
 				logger.log("Received this message from Kafka - " + thisMessage.toString());
 				logger.log("Message in JSON format : " + gson.toJson(thisMessage));
+				// Persist the Kafka metadata and the parsed JSON payload fields to DynamoDB
+				writeToDynamoDb(thisMessage, logger);
 			}
 		}
 		logger.log("All Messages in this batch = " + gson.toJson(listOfMessages));
 		return response;
+	}
+
+	/*
+	 * Writes one Kafka message to DynamoDB: the Kafka metadata (topic, partition,
+	 * offset, timestamp, timestampType, key) plus every top-level field of the
+	 * decoded JSON payload (firstName, lastName, email, ...). The item is keyed by
+	 * topicPartition (partition key) + offset (sort key). Skipped when the
+	 * DYNAMODB_TABLE_NAME environment variable is not set.
+	 */
+	private void writeToDynamoDb(KafkaMessage message, LambdaLogger logger) {
+		if (null == TABLE_NAME || TABLE_NAME.isEmpty()) {
+			return;
+		}
+		try {
+			Map<String, AttributeValue> item = new HashMap<String, AttributeValue>();
+			// Kafka metadata
+			item.put("topicPartition", AttributeValue.fromS(message.getTopic() + "-" + message.getPartition()));
+			item.put("offset", AttributeValue.fromN(Long.toString(message.getOffset())));
+			item.put("topic", AttributeValue.fromS(message.getTopic()));
+			item.put("partition", AttributeValue.fromN(Integer.toString(message.getPartition())));
+			item.put("timestamp", AttributeValue.fromN(Long.toString(message.getTimestamp())));
+			if (null != message.getTimestampType()) {
+				item.put("timestampType", AttributeValue.fromS(message.getTimestampType()));
+			}
+			if (null != message.getDecodedKey()) {
+				item.put("key", AttributeValue.fromS(message.getDecodedKey()));
+			}
+			if (null != message.getDecodedValue()) {
+				item.put("value", AttributeValue.fromS(message.getDecodedValue()));
+			}
+			// Parse the decoded value as JSON and store each top-level field as its own attribute
+			try {
+				JsonElement parsed = JsonParser.parseString(message.getDecodedValue());
+				if (parsed.isJsonObject()) {
+					for (Map.Entry<String, JsonElement> field : parsed.getAsJsonObject().entrySet()) {
+						if (field.getValue().isJsonPrimitive()) {
+							item.put(field.getKey(), AttributeValue.fromS(field.getValue().getAsString()));
+						}
+					}
+				}
+			} catch (RuntimeException jsonEx) {
+				// Not a JSON payload - the raw value is already stored under "value"
+			}
+			ddb().putItem(PutItemRequest.builder().tableName(TABLE_NAME).item(item).build());
+			logger.log("Wrote message to DynamoDB table " + TABLE_NAME
+					+ " (topicPartition=" + message.getTopic() + "-" + message.getPartition()
+					+ ", offset=" + message.getOffset() + ")");
+		} catch (Exception e) {
+			logger.log("ERROR writing to DynamoDB table " + TABLE_NAME + ": " + e.getMessage());
+			throw e;
+		}
 	}
 }

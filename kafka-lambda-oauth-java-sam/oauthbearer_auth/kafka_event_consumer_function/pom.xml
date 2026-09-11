@@ -26,6 +26,11 @@
     <artifactId>gson</artifactId>
     <version>2.10.1</version>
 </dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>dynamodb</artifactId>
+			<version>2.28.16</version>
+		</dependency>
 
 		<dependency>
 			<groupId>org.apache.kafka</groupId>

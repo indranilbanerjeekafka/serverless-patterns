@@ -28,6 +28,7 @@
 # =============================================================================
 set -euo pipefail
 export AWS_PAGER=""   # don't pipe CLI output through a pager (less/vi)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ---------------------------- Configuration ---------------------------------
 REGION="${AWS_REGION:-us-west-2}"
@@ -35,11 +36,12 @@ STACK_NAME="${STACK_NAME:-kafka-oauth}"                    # CFN stack for VPC/s
 FUNCTION_NAME="${FUNCTION_NAME:-kafka-oauth-selfmanaged-consumer}"
 RUNTIME="${RUNTIME:-java21}"
 HANDLER="com.amazonaws.services.lambda.samples.events.msk.HandlerMSK::handleRequest"
-JAR_PATH="${JAR_PATH:-kafka_event_consumer_function/target/MSKConsumer-1.0.jar}"
+JAR_PATH="${JAR_PATH:-$SCRIPT_DIR/kafka_event_consumer_function/target/MSKConsumer-1.0.jar}"
 TOPIC="${TOPIC:-KafkaOAuthJavaLambdaTopic}"
 CONSUMER_GROUP="${CONSUMER_GROUP:-lambda-oauth-consumer}"
 POLLER_GROUP="${POLLER_GROUP:-${CONSUMER_GROUP}-cell1}"    # must be a fresh name per VPC + event source type
 BATCH_SIZE="${BATCH_SIZE:-10}"
+DDB_TABLE_NAME="${DDB_TABLE_NAME:-KafkaOAuthBearerAuth}"   # the function writes each message here
 
 # Bootstrap servers = the brokers' SASL_SSL / OAUTHBEARER listener (:9092 in this pattern).
 BOOTSTRAP_SERVERS="${BOOTSTRAP_SERVERS:-10.0.1.10:9092,10.0.2.10:9092,10.0.3.10:9092}"
@@ -105,8 +107,19 @@ fi
 # ------------------------------ Build the jar --------------------------------
 if [ ! -f "$JAR_PATH" ]; then
   echo "Building consumer jar..."
-  ( cd "$(dirname "$0")/kafka_event_consumer_function" && mvn -q -DskipTests package )
+  ( cd "$SCRIPT_DIR/kafka_event_consumer_function" && mvn -q -DskipTests package )
 fi
+
+# ---------------------------- DynamoDB table ---------------------------------
+if ! aws dynamodb describe-table --region "$REGION" --table-name "$DDB_TABLE_NAME" >/dev/null 2>&1; then
+  echo "Creating DynamoDB table $DDB_TABLE_NAME (topicPartition [HASH], offset [RANGE])..."
+  aws dynamodb create-table --region "$REGION" --table-name "$DDB_TABLE_NAME" \
+    --attribute-definitions AttributeName=topicPartition,AttributeType=S AttributeName=offset,AttributeType=N \
+    --key-schema AttributeName=topicPartition,KeyType=HASH AttributeName=offset,KeyType=RANGE \
+    --billing-mode PAY_PER_REQUEST >/dev/null
+  aws dynamodb wait table-exists --region "$REGION" --table-name "$DDB_TABLE_NAME"
+fi
+DDB_TABLE_ARN=$(aws dynamodb describe-table --region "$REGION" --table-name "$DDB_TABLE_NAME" --query 'Table.TableArn' --output text)
 
 # ---------------------------- Execution role ---------------------------------
 ROLE_NAME="${ROLE_NAME:-${FUNCTION_NAME}-role}"
@@ -127,16 +140,26 @@ if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
 fi
 ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
 
+# Allow the function to write messages to the DynamoDB table (idempotent).
+aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name dynamodb-write --policy-document "{
+  \"Version\":\"2012-10-17\",\"Statement\":[
+    {\"Effect\":\"Allow\",\"Action\":[\"dynamodb:PutItem\",\"dynamodb:BatchWriteItem\"],\"Resource\":\"$DDB_TABLE_ARN\"}
+  ]}"
+
 # ------------------------- Create/update the function ------------------------
 if aws lambda get-function --region "$REGION" --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
   echo "Updating function code..."
   aws lambda update-function-code --region "$REGION" --function-name "$FUNCTION_NAME" \
     --zip-file "fileb://$JAR_PATH" >/dev/null
+  aws lambda wait function-updated-v2 --region "$REGION" --function-name "$FUNCTION_NAME" 2>/dev/null || sleep 10
+  aws lambda update-function-configuration --region "$REGION" --function-name "$FUNCTION_NAME" \
+    --environment "Variables={DYNAMODB_TABLE_NAME=$DDB_TABLE_NAME}" >/dev/null
 else
   echo "Creating function $FUNCTION_NAME..."
   aws lambda create-function --region "$REGION" --function-name "$FUNCTION_NAME" \
     --runtime "$RUNTIME" --role "$ROLE_ARN" --handler "$HANDLER" \
-    --zip-file "fileb://$JAR_PATH" --timeout 60 --memory-size 512 >/dev/null
+    --zip-file "fileb://$JAR_PATH" --timeout 60 --memory-size 512 \
+    --environment "Variables={DYNAMODB_TABLE_NAME=$DDB_TABLE_NAME}" >/dev/null
 fi
 aws lambda wait function-active-v2 --region "$REGION" --function-name "$FUNCTION_NAME" 2>/dev/null || sleep 10
 
@@ -144,6 +167,15 @@ aws lambda wait function-active-v2 --region "$REGION" --function-name "$FUNCTION
 BS_JSON=$(python3 -c "import json,sys;print(json.dumps([s for s in sys.argv[1].split(',') if s]))" "$BOOTSTRAP_SERVERS")
 
 # ------------------------- Create the event source mapping -------------------
+# Skip if a mapping for this function + topic already exists (idempotent re-runs;
+# the function code/env are still updated above).
+EXISTING_ESM=$(aws lambda list-event-source-mappings --region "$REGION" --function-name "$FUNCTION_NAME" \
+  --query "EventSourceMappings[?Topics[0]=='$TOPIC'].UUID | [0]" --output text 2>/dev/null)
+if [ -n "$EXISTING_ESM" ] && [ "$EXISTING_ESM" != "None" ]; then
+  echo "Event source mapping already exists for topic $TOPIC ($EXISTING_ESM); skipping create."
+  echo "Delete it first if you need to recreate: aws lambda delete-event-source-mapping --uuid $EXISTING_ESM"
+  exit 0
+fi
 echo "Creating self-managed Kafka event source mapping (OAUTHBEARER)..."
 aws lambda create-event-source-mapping --region "$REGION" \
   --function-name "$FUNCTION_NAME" \

@@ -16,9 +16,9 @@
     },
     "gitHub": {
         "template": {
-            "repoURL": "https://github.com/aws-samples/serverless-patterns/tree/main/kafka-lambda-oauth-java-sam",
-            "templateURL": "serverless-patterns/kafka-lambda-oauth-java-sam",
-            "projectFolder": "kafka-lambda-oauth-java-sam",
+            "repoURL": "https://github.com/aws-samples/serverless-patterns/tree/main/kafka-lambda-oauth-java-sam/oauthbearer_auth",
+            "templateURL": "serverless-patterns/kafka-lambda-oauth-java-sam/oauthbearer_auth",
+            "projectFolder": "kafka-lambda-oauth-java-sam/oauthbearer_auth",
             "templateFile": "template.yaml"
         }
     },
