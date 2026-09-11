@@ -138,18 +138,21 @@ if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
     --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
   aws iam attach-role-policy --role-name "$ROLE_NAME" \
     --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-  # Self-managed Kafka ESM: the poller creates ENIs in your VPC and reads the
-  # OAuth + CA secrets on the execution role's behalf.
-  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name kafka-esm-access --policy-document "{
-    \"Version\":\"2012-10-17\",\"Statement\":[
-      {\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateNetworkInterface\",\"ec2:DescribeNetworkInterfaces\",\"ec2:DeleteNetworkInterface\",\"ec2:DescribeSecurityGroups\",\"ec2:DescribeSubnets\",\"ec2:DescribeVpcs\"],\"Resource\":\"*\"},
-      {\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":[\"$OAUTH_SECRET_ARN\",\"$SERVER_CA_SECRET_ARN\"]}
-    ]}"
   echo "Waiting for role to propagate..."; sleep 15
 fi
 ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
 
-# Allow the function to write messages to the DynamoDB table (idempotent).
+# (Re)apply the role policies on every run so they always reference the CURRENT
+# secret ARNs and table (secrets/table can be recreated across stack redeploys).
+# Self-managed Kafka ESM: the poller creates ENIs in the VPC and reads the OAuth
+# + CA secrets on the execution role's behalf.
+aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name kafka-esm-access --policy-document "{
+  \"Version\":\"2012-10-17\",\"Statement\":[
+    {\"Effect\":\"Allow\",\"Action\":[\"ec2:CreateNetworkInterface\",\"ec2:DescribeNetworkInterfaces\",\"ec2:DeleteNetworkInterface\",\"ec2:DescribeSecurityGroups\",\"ec2:DescribeSubnets\",\"ec2:DescribeVpcs\"],\"Resource\":\"*\"},
+    {\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":[\"$OAUTH_SECRET_ARN\",\"$SERVER_CA_SECRET_ARN\"]}
+  ]}"
+
+# Allow the function to write messages to the DynamoDB table.
 aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name dynamodb-write --policy-document "{
   \"Version\":\"2012-10-17\",\"Statement\":[
     {\"Effect\":\"Allow\",\"Action\":[\"dynamodb:PutItem\",\"dynamodb:BatchWriteItem\"],\"Resource\":\"$DDB_TABLE_ARN\"}
