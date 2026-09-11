@@ -84,24 +84,33 @@ if [ -z "$OAUTH_SECRET_ARN" ] && [ -z "$OAUTH_CLIENT_SECRET" ] && [ -n "$USER_PO
 fi
 
 # ------------------------- Create secrets if needed --------------------------
+# Create the secret if it does not exist, otherwise update it in place, and
+# return its ARN (so re-runs are idempotent - secrets outlive the CFN stack).
+ensure_secret() {  # name  secret-string  ->  prints ARN
+  local name="$1" value="$2" arn
+  arn=$(aws secretsmanager describe-secret --region "$REGION" --secret-id "$name" --query ARN --output text 2>/dev/null || true)
+  if [ -n "$arn" ] && [ "$arn" != "None" ]; then
+    aws secretsmanager put-secret-value --region "$REGION" --secret-id "$name" --secret-string "$value" >/dev/null
+    echo "$arn"
+  else
+    aws secretsmanager create-secret --region "$REGION" --name "$name" --secret-string "$value" --query 'ARN' --output text
+  fi
+}
+
 if [ -z "$OAUTH_SECRET_ARN" ]; then
   [ -n "$OAUTH_CLIENT_ID" ] && [ -n "$OAUTH_CLIENT_SECRET" ] && [ -n "$OAUTH_TOKEN_ENDPOINT" ] || {
     echo "ERROR: set OAUTH_SECRET_ARN, or OAUTH_CLIENT_ID + OAUTH_CLIENT_SECRET + OAUTH_TOKEN_ENDPOINT to create it"; exit 1; }
-  echo "Creating OAuth client-credentials secret..."
-  OAUTH_SECRET_ARN=$(aws secretsmanager create-secret --region "$REGION" \
-    --name "${FUNCTION_NAME}-oauth-creds" \
-    --secret-string "{\"oauthClientId\":\"$OAUTH_CLIENT_ID\",\"oauthClientSecret\":\"$OAUTH_CLIENT_SECRET\",\"oauthTokenEndpointUrl\":\"$OAUTH_TOKEN_ENDPOINT\"}" \
-    --query 'ARN' --output text)
+  echo "Creating/updating OAuth client-credentials secret..."
+  OAUTH_SECRET_ARN=$(ensure_secret "${FUNCTION_NAME}-oauth-creds" \
+    "{\"oauthClientId\":\"$OAUTH_CLIENT_ID\",\"oauthClientSecret\":\"$OAUTH_CLIENT_SECRET\",\"oauthTokenEndpointUrl\":\"$OAUTH_TOKEN_ENDPOINT\"}")
 fi
 
 if [ -z "$SERVER_CA_SECRET_ARN" ]; then
   [ -n "$BROKER_CA_CERT_FILE" ] && [ -f "$BROKER_CA_CERT_FILE" ] || {
     echo "ERROR: set SERVER_CA_SECRET_ARN, or BROKER_CA_CERT_FILE (PEM) to create it"; exit 1; }
-  echo "Creating broker CA trust-anchor secret (field 'certificate')..."
-  SERVER_CA_SECRET_ARN=$(aws secretsmanager create-secret --region "$REGION" \
-    --name "${FUNCTION_NAME}-broker-ca" \
-    --secret-string "$(jq -n --arg c "$(cat "$BROKER_CA_CERT_FILE")" '{certificate:$c}')" \
-    --query 'ARN' --output text)
+  echo "Creating/updating broker CA trust-anchor secret (field 'certificate')..."
+  SERVER_CA_SECRET_ARN=$(ensure_secret "${FUNCTION_NAME}-broker-ca" \
+    "$(jq -n --arg c "$(cat "$BROKER_CA_CERT_FILE")" '{certificate:$c}')")
 fi
 
 # ------------------------------ Build the jar --------------------------------
