@@ -500,7 +500,7 @@ Resources:
               # API; adjust the command/field name if it differs at GA.
               if [ -z "$OUTBOUND_ISSUER" ]; then
                 aws iam enable-outbound-web-identity-federation 2>/dev/null || true
-                OUTBOUND_ISSUER=$(aws iam get-outbound-web-identity-federation-info --query 'IssuerUrl' --output text 2>/dev/null || true)
+                OUTBOUND_ISSUER=$(aws iam get-outbound-web-identity-federation-info --query 'IssuerIdentifier' --output text 2>/dev/null || true)
               fi
               ISSUER="$OUTBOUND_ISSUER"
               JWKS="$ISSUER/.well-known/jwks.json"
@@ -702,7 +702,7 @@ Resources:
               # API; adjust the command/field name if it differs at GA.
               if [ -z "$OUTBOUND_ISSUER" ]; then
                 aws iam enable-outbound-web-identity-federation 2>/dev/null || true
-                OUTBOUND_ISSUER=$(aws iam get-outbound-web-identity-federation-info --query 'IssuerUrl' --output text 2>/dev/null || true)
+                OUTBOUND_ISSUER=$(aws iam get-outbound-web-identity-federation-info --query 'IssuerIdentifier' --output text 2>/dev/null || true)
               fi
               ISSUER="$OUTBOUND_ISSUER"
               JWKS="$ISSUER/.well-known/jwks.json"
@@ -904,7 +904,7 @@ Resources:
               # API; adjust the command/field name if it differs at GA.
               if [ -z "$OUTBOUND_ISSUER" ]; then
                 aws iam enable-outbound-web-identity-federation 2>/dev/null || true
-                OUTBOUND_ISSUER=$(aws iam get-outbound-web-identity-federation-info --query 'IssuerUrl' --output text 2>/dev/null || true)
+                OUTBOUND_ISSUER=$(aws iam get-outbound-web-identity-federation-info --query 'IssuerIdentifier' --output text 2>/dev/null || true)
               fi
               ISSUER="$OUTBOUND_ISSUER"
               JWKS="$ISSUER/.well-known/jwks.json"
@@ -1178,7 +1178,7 @@ Resources:
               # Clone the serverless pattern (Java apps + scripts + SAM template)
               cd /home/ec2-user
               git clone $SERVERLESS_LAND_GITHUB_LOCATION
-              PATTERN_DIR=/home/ec2-user/serverless-patterns/kafka-lambda-oauth-java-sam/oauthbearer_auth
+              PATTERN_DIR=/home/ec2-user/serverless-patterns/kafka-lambda-oauth-java-sam/iam_oauthbearer_auth
 
               # Build the producer/consumer JSON apps (shaded jar) and install scripts
               cd "$PATTERN_DIR/kafka_json_apps"

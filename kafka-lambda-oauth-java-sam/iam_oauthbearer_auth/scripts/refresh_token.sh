@@ -26,7 +26,7 @@ export AWS_ACCESS_KEY_ID="$(echo "$CREDS_JSON" | jq -r .AccessKeyId)"
 export AWS_SECRET_ACCESS_KEY="$(echo "$CREDS_JSON" | jq -r .SecretAccessKey)"
 export AWS_SESSION_TOKEN="$(echo "$CREDS_JSON" | jq -r .SessionToken)"
 
-TOKEN="$(aws sts get-web-identity-token --audience "$OUTBOUND_AUDIENCE" --query 'WebIdentityToken' --output text)"
+TOKEN="$(aws sts get-web-identity-token --audience "$OUTBOUND_AUDIENCE" --signing-algorithm RS256 --query 'WebIdentityToken' --output text)"
 if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
   echo "ERROR: could not mint a web-identity token for role '$ROLE'" >&2
   exit 1

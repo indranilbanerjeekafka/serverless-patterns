@@ -123,6 +123,20 @@ aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name dynamodb-write --
     {\"Effect\":\"Allow\",\"Action\":[\"dynamodb:PutItem\",\"dynamodb:BatchWriteItem\"],\"Resource\":\"$DDB_TABLE_ARN\"}
   ]}"
 
+# Grant the poller READ on the topic + consumer groups. The poller's web-identity
+# token subject is its execution role ARN, so that is the Kafka principal. ACLs
+# are set over the brokers' internal PLAINTEXT listener (ANONYMOUS is a broker
+# super user there), which requires this to run on the client EC2 instance.
+KAFKA_HOME="${KAFKA_HOME:-/home/ec2-user/kafka}"
+INTERNAL_BOOTSTRAP="${INTERNAL_BOOTSTRAP:-$(echo "$BOOTSTRAP_SERVERS" | sed 's/:9092/:9094/g')}"
+if [ -x "$KAFKA_HOME/bin/kafka-acls.sh" ]; then
+  echo "Granting poller principal READ (User:$ROLE_ARN) via the internal listener..."
+  "$KAFKA_HOME"/bin/kafka-acls.sh --bootstrap-server "$INTERNAL_BOOTSTRAP" --add --allow-principal "User:$ROLE_ARN" --operation Read --topic "$TOPIC" 2>/dev/null || true
+  "$KAFKA_HOME"/bin/kafka-acls.sh --bootstrap-server "$INTERNAL_BOOTSTRAP" --add --allow-principal "User:$ROLE_ARN" --operation Read --group '*' 2>/dev/null || true
+else
+  echo "NOTE: kafka-acls.sh not found; grant the poller READ manually (principal User:$ROLE_ARN)."
+fi
+
 # ------------------------- Create/update the function ------------------------
 if aws lambda get-function --region "$REGION" --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
   echo "Updating function code..."
