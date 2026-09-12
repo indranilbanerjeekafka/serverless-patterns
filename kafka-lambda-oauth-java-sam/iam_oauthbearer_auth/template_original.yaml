@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  kafka_event_consumer_function
+
+  Sample SAM Template for a Lambda function that consumes from a self-managed
+  Apache Kafka cluster (IAM Outbound Identity Federation (SASL-OAUTHBEARER, AWS-minted web-identity tokens);
+  no external identity provider).
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 15
+
+Resources:
+  LambdaKafkaConsumerJavaFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: kafka_event_consumer_function
+      Handler: com.amazonaws.services.lambda.samples.events.msk.HandlerMSK::handleRequest
+      Runtime: JAVA_VERSION
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
+        Variables:
+          # The consumer writes each message's fields + Kafka metadata to this table
+          DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
+          JAVA_TOOL_OPTIONS: -XX:+TieredCompilation -XX:TieredStopAtLevel=1 # More info about tiered compilation https://aws.amazon.com/blogs/compute/optimizing-aws-lambda-function-performance-for-java/
+      Events:
+        SelfManagedKafkaEvent:
+          Type: SelfManagedKafka # More info about SelfManagedKafka Event https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-property-function-selfmanagedkafka.html
+          Properties:
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 300
+            Topics:
+              - KAFKA_TOPIC
+            # Bootstrap servers of the self-managed Kafka brokers running on EC2.
+            # These placeholders are substituted with the actual broker private
+            # IP:port values by the setup script on the Kafka client EC2 instance.
+            KafkaBootstrapServers:
+              - "BOOTSTRAP_SERVER_1"
+              - "BOOTSTRAP_SERVER_2"
+              - "BOOTSTRAP_SERVER_3"
+            SourceAccessConfigurations:
+              # The brokers live on private IPs inside the VPC, so the Lambda
+              # event source mapping must attach ENIs to the VPC to reach them.
+              - Type: VPC_SUBNET
+                URI: "subnet:SUBNET_1"
+              - Type: VPC_SUBNET
+                URI: "subnet:SUBNET_2"
+              - Type: VPC_SUBNET
+                URI: "subnet:SUBNET_3"
+              - Type: VPC_SECURITY_GROUP
+                URI: "security_group:LAMBDA_SG"
+              # ---------------------------------------------------------------
+              # AUTHENTICATION (OAuth / SASL-OAUTHBEARER)
+              #
+              # The self-managed Kafka cluster in this pattern authenticates
+              # clients with SASL/OAUTHBEARER, validating JWT access tokens
+              # issued by an Amazon Cognito User Pool.
+              #
+              # At the time of publishing, the AWS Lambda self-managed Kafka
+              # event source mapping does NOT yet support SASL/OAUTHBEARER
+              # authentication. Support is expected soon. When it is released,
+              # add the appropriate authentication SourceAccessConfiguration
+              # entry here (the final Type name will be published by AWS), for
+              # example:
+              #
+              # - Type: SERVER_ROOT_CA_CERTIFICATE / SASL_OAUTH (TBD)
+              #   URI: <Secrets Manager secret / configuration reference>
+              #
+              # Until then the event source mapping above is provided as
+              # scaffolding and the auth entry must be supplied to deploy a
+              # working end-to-end integration.
+              # ---------------------------------------------------------------
+      Policies:
+      - DynamoDBWritePolicy:
+          TableName: !Ref MessagesTable
+      - Statement:
+        - Sid: EC2PermissionsPolicy
+          Effect: Allow
+          Action:
+          - ec2:DescribeSecurityGroups
+          - ec2:DescribeSubnets
+          - ec2:DescribeVpcs
+          - ec2:CreateNetworkInterface
+          - ec2:DescribeNetworkInterfaces
+          - ec2:DeleteNetworkInterface
+          Resource: '*'
+
+        # When SASL/OAUTHBEARER support ships for self-managed Kafka event
+        # sources, the credentials (or configuration) will typically live in
+        # AWS Secrets Manager. Grant the function read access to that secret
+        # here, for example:
+        # - Sid: SecretsManagerPolicy
+        #   Effect: Allow
+        #   Action:
+        #   - secretsmanager:GetSecretValue
+        #   Resource: <secret ARN>
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref DynamoDBTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: topicPartition
+          AttributeType: S
+        - AttributeName: offset
+          AttributeType: N
+      KeySchema:
+        - AttributeName: topicPartition
+          KeyType: HASH
+        - AttributeName: offset
+          KeyType: RANGE
+Parameters:
+  KafkaTopic:
+    Type: String
+    Description: Enter the name of the Kafka Topic the Lambda function will consume from
+    Default: KAFKA_TOPIC
+  DynamoDBTableName:
+    Type: String
+    Description: DynamoDB table the consumer writes message fields + Kafka metadata to
+    Default: KafkaIamOAuthBearerAuth
+Outputs:
+  LambdaKafkaConsumerJavaFunction:
+    Description: "Self-managed Kafka Consumer Lambda Function ARN"
+    Value: !GetAtt LambdaKafkaConsumerJavaFunction.Arn
+  MessagesTableName:
+    Description: "DynamoDB table the consumer writes to"
+    Value: !Ref MessagesTable
