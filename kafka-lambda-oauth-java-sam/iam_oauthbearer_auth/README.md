@@ -54,5 +54,14 @@ aws dynamodb scan --table-name KafkaIamOAuthBearerAuth --max-items 5
 ```
 Negative tests: `bash scripts/bad_invalid_credentials.sh` and `bash scripts/bad_unauthorized_operations.sh`.
 
+## Known limitation: 5-minute token lifetime
+
+AWS Outbound web-identity tokens are short-lived (**~300 seconds**). Authentication is validated per token, so:
+- The Lambda `IAM_OAUTHBEARER_AUTH` poller must re-mint a token every <5 min. If a refresh gap occurs (this is an under-development feature), the mapping can trip to `Disabled` with `LastProcessingResult: SASL authentication failed`. Re-enable it to recover:
+  ```bash
+  aws lambda update-event-source-mapping --uuid <uuid> --enabled
+  ```
+- `refresh_token.sh` writes a **static** token, and the Strimzi client callback does not refresh a pre-supplied token, so a `consumer_receive.sh` left running **longer than ~5 minutes will drop** with an auth error. Short produce/consume runs (each mints a fresh token) are unaffected — just re-run for another session.
+
 ## Cleanup
 Delete the event source mapping and function, the DynamoDB table (`KafkaIamOAuthBearerAuth`), the broker-CA secret, and the execution role; then delete the CloudFormation stack. Optionally remove the S3 Kafka/cert cache bucket (`kafka-*-cache-<account>-<region>`).
