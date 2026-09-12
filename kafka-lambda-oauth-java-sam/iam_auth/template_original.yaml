@@ -35,25 +35,25 @@ Resources:
             BatchSize: 10
             MaximumBatchingWindowInSeconds: 300
             Topics:
-              - KAFKA_TOPIC
+              - !Ref KafkaTopic
             # Bootstrap servers of the self-managed Kafka brokers running on EC2.
             # These placeholders are substituted with the actual broker private
             # IP:port values by the setup script on the Kafka client EC2 instance.
             KafkaBootstrapServers:
-              - "BOOTSTRAP_SERVER_1"
-              - "BOOTSTRAP_SERVER_2"
-              - "BOOTSTRAP_SERVER_3"
+              - !Ref KafkaBootstrapServer1
+              - !Ref KafkaBootstrapServer2
+              - !Ref KafkaBootstrapServer3
             SourceAccessConfigurations:
               # The brokers live on private IPs inside the VPC, so the Lambda
               # event source mapping must attach ENIs to the VPC to reach them.
               - Type: VPC_SUBNET
-                URI: "subnet:SUBNET_1"
+                URI: !Sub "subnet:${PrivateSubnetOne}"
               - Type: VPC_SUBNET
-                URI: "subnet:SUBNET_2"
+                URI: !Sub "subnet:${PrivateSubnetTwo}"
               - Type: VPC_SUBNET
-                URI: "subnet:SUBNET_3"
+                URI: !Sub "subnet:${PrivateSubnetThree}"
               - Type: VPC_SECURITY_GROUP
-                URI: "security_group:LAMBDA_SG"
+                URI: !Sub "security_group:${SecurityGroupId}"
               # ---------------------------------------------------------------
               # AUTHENTICATION (OAuth / SASL-OAUTHBEARER)
               #
@@ -119,6 +119,34 @@ Parameters:
     Type: String
     Description: Enter the name of the Kafka Topic the Lambda function will consume from
     Default: KAFKA_TOPIC
+  KafkaBootstrapServer1:
+    Type: String
+    Description: First MSK broker bootstrap endpoint (host:port, IAM :9098)
+    Default: BOOTSTRAP_SERVER_1
+  KafkaBootstrapServer2:
+    Type: String
+    Description: Second MSK broker bootstrap endpoint (host:port, IAM :9098)
+    Default: BOOTSTRAP_SERVER_2
+  KafkaBootstrapServer3:
+    Type: String
+    Description: Third MSK broker bootstrap endpoint (host:port, IAM :9098)
+    Default: BOOTSTRAP_SERVER_3
+  PrivateSubnetOne:
+    Type: String
+    Description: First private subnet ID for the Lambda event source mapping ENIs
+    Default: SUBNET_1
+  PrivateSubnetTwo:
+    Type: String
+    Description: Second private subnet ID for the Lambda event source mapping ENIs
+    Default: SUBNET_2
+  PrivateSubnetThree:
+    Type: String
+    Description: Third private subnet ID for the Lambda event source mapping ENIs
+    Default: SUBNET_3
+  SecurityGroupId:
+    Type: String
+    Description: Security group ID for the Lambda event source mapping ENIs
+    Default: LAMBDA_SG
   DynamoDBTableName:
     Type: String
     Description: DynamoDB table the consumer writes message fields + Kafka metadata to

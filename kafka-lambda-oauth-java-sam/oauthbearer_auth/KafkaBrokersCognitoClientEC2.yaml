@@ -53,7 +53,7 @@ Parameters:
     Default: 4L6g3nShT-eMCtK--X86sw
   KafkaTopicForLambda:
     Type: String
-    Default: KafkaOAuthJavaLambdaTopic
+    Default: KafkaOAuthBearerLambdaTopic
   ServerlessLandGithubLocation:
     Type: String
     Default: https://github.com/aws-samples/serverless-patterns/

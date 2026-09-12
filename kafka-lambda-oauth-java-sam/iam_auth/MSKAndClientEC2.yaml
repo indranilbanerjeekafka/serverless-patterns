@@ -29,7 +29,7 @@ Parameters:
     Default: https://github.com/aws/aws-msk-iam-auth/releases/download/v2.2.0/aws-msk-iam-auth-2.2.0-all.jar
   KafkaTopicForLambda:
     Type: String
-    Default: KafkaOAuthJavaLambdaTopic
+    Default: KafkaIamLambdaTopic
   ServerlessLandGithubLocation:
     Type: String
     Default: https://github.com/aws-samples/serverless-patterns/
