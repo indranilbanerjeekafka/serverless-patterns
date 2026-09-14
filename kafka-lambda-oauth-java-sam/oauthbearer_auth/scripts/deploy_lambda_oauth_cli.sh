@@ -190,7 +190,9 @@ if [ -n "$EXISTING_ESM" ] && [ "$EXISTING_ESM" != "None" ]; then
   exit 0
 fi
 echo "Creating self-managed Kafka event source mapping (OAUTHBEARER)..."
-aws lambda create-event-source-mapping --region "$REGION" \
+esm_created=false
+for attempt in 1 2 3 4 5 6; do
+if aws lambda create-event-source-mapping --region "$REGION" \
   --function-name "$FUNCTION_NAME" \
   --topics "$TOPIC" \
   --self-managed-event-source "{\"Endpoints\":{\"KAFKA_BOOTSTRAP_SERVERS\":$BS_JSON}}" \
@@ -206,7 +208,10 @@ aws lambda create-event-source-mapping --region "$REGION" \
   ]" \
   --provisioned-poller-config "{\"PollerGroupName\":\"$POLLER_GROUP\",\"MinimumPollers\":1,\"MaximumPollers\":1}" \
   --starting-position TRIM_HORIZON \
-  --batch-size "$BATCH_SIZE"
+  --batch-size "$BATCH_SIZE"; then esm_created=true; break; fi
+  echo "  ESM create attempt $attempt failed (often IAM role/policy propagation); retrying in 15s..."; sleep 15
+done
+[ "$esm_created" = true ] || { echo "ERROR: event source mapping not created after retries"; exit 1; }
 
 echo
 echo "Done. Watch the mapping reach Enabled and process records:"
