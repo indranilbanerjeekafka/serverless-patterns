@@ -20,6 +20,15 @@ Parameters:
     Description: Amazon Corretto (Java) version installed on the EC2 client to run the Apache Kafka CLI tools. This does NOT set the Lambda runtime - the Lambda consumer uses the Python runtime defined in the SAM template / deploy script.
     AllowedValues: [java11, java17, java21, java25]
     Default: java21
+  Python3Version:
+    Type: String
+    Description: Python 3 runtime for the Lambda consumer. The client instance's UserData substitutes this into the SAM template (template.yaml) in place of the PYTHON3_VERSION placeholder.
+    AllowedValues:
+      - python3.9
+      - python3.11
+      - python3.12
+      - python3.13
+    Default: python3.13
   ApacheKafkaInstallerLocation:
     Type: String
     Description: Kafka distribution download URL (for the client-side CLI tools).
@@ -298,6 +307,7 @@ Resources:
               exec > /var/log/kafka-client-setup.log 2>&1
 
               JAVA_VERSION=${java_version}
+              PYTHON3_VERSION=${python3_version}
               AWS_REGION=${region}
               KAFKA_URL=${kafka_installer}
               MSK_IAM_JAR_URL=${msk_iam_jar_url}
@@ -382,6 +392,7 @@ Resources:
               sed -i "s|BOOTSTRAP_SERVER_1|$BS1|g; s|BOOTSTRAP_SERVER_2|$BS2|g; s|BOOTSTRAP_SERVER_3|$BS3|g" template.yaml
               sed -i "s|SUBNET_1|$SUBNET1|g; s|SUBNET_2|$SUBNET2|g; s|SUBNET_3|$SUBNET3|g" template.yaml
               sed -i "s|LAMBDA_SG|$MSK_SG|g; s|KAFKA_TOPIC|$KAFKA_TOPIC|g" template.yaml
+              sed -i "s|PYTHON3_VERSION|$PYTHON3_VERSION|g" template.yaml
 
               chown -R ec2-user:ec2-user /home/ec2-user
 
@@ -402,6 +413,7 @@ Resources:
                 aws ec2 authorize-security-group-ingress --region "$AWS_REGION" --group-id "$CLIENT_SG" --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,PrefixListIds=[{PrefixListId=$EIC_PL}]" 2>/dev/null || true
               fi
             - java_version: !Ref JavaVersion
+              python3_version: !Ref Python3Version
               region: !Ref 'AWS::Region'
               kafka_installer: !Ref ApacheKafkaInstallerLocation
               msk_iam_jar_url: !Ref MskIamAuthJarUrl

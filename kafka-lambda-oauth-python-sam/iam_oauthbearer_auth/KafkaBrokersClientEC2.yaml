@@ -48,6 +48,15 @@ Parameters:
       - java21
       - java25
     Default: java21
+  Python3Version:
+    Type: String
+    Description: Python 3 runtime for the Lambda consumer. The client instance's UserData substitutes this into the SAM template (template.yaml) in place of the PYTHON3_VERSION placeholder.
+    AllowedValues:
+      - python3.9
+      - python3.11
+      - python3.12
+      - python3.13
+    Default: python3.13
   ApacheKafkaInstallerLocation:
     Type: String
     Description: Download URL for the Apache Kafka distribution (Scala 2.13 build).
@@ -1035,6 +1044,7 @@ Resources:
               exec > /var/log/kafka-client-setup.log 2>&1
 
               JAVA_VERSION=${java_version}
+              PYTHON3_VERSION=${python3_version}
               AWS_REGION=${region}
               KAFKA_URL=${kafka_installer}
               STRIMZI_VERSION=${strimzi_version}
@@ -1211,6 +1221,7 @@ Resources:
               sed -i "s|SUBNET_3|$SUBNET3|g" template.yaml
               sed -i "s|LAMBDA_SG|$LAMBDA_SG|g" template.yaml
               sed -i "s|KAFKA_TOPIC|$KAFKA_TOPIC|g" template.yaml
+              sed -i "s|PYTHON3_VERSION|$PYTHON3_VERSION|g" template.yaml
 
               chown -R ec2-user:ec2-user /home/ec2-user
 
@@ -1234,6 +1245,7 @@ Resources:
               done
               chown -R ec2-user:ec2-user /home/ec2-user
             - java_version: !Ref JavaVersion
+              python3_version: !Ref Python3Version
               region: !Ref 'AWS::Region'
               kafka_installer: !Ref ApacheKafkaInstallerLocation
               strimzi_version: !Ref StrimziOAuthVersion
