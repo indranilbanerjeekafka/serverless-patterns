@@ -1213,7 +1213,8 @@ Resources:
 
               # Clone the serverless pattern (Java apps + scripts + SAM template)
               cd /home/ec2-user
-              git clone $SERVERLESS_LAND_GITHUB_LOCATION
+              git clone --depth 1 --filter=blob:none --sparse $SERVERLESS_LAND_GITHUB_LOCATION serverless-patterns
+              git -C serverless-patterns sparse-checkout set kafka-lambda-oauth-java-sam
               PATTERN_DIR=/home/ec2-user/serverless-patterns/kafka-lambda-oauth-java-sam/oauthbearer_auth
 
               # Build the producer/consumer JSON apps (shaded jar) and install scripts

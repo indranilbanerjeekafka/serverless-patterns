@@ -362,7 +362,8 @@ Resources:
 
               # Clone the pattern and install the Python JSON sample apps
               cd /home/ec2-user
-              git clone $SERVERLESS_LAND_GITHUB_LOCATION
+              git clone --depth 1 --filter=blob:none --sparse $SERVERLESS_LAND_GITHUB_LOCATION serverless-patterns
+              git -C serverless-patterns sparse-checkout set kafka-lambda-oauth-python-sam
               PATTERN_DIR=/home/ec2-user/serverless-patterns/kafka-lambda-oauth-python-sam/iam_auth
               mkdir -p "$KAFKA_JSON_APPS_DIR" && cp "$PATTERN_DIR"/kafka_json_apps/*.py "$KAFKA_JSON_APPS_DIR"/
               mkdir -p /home/ec2-user/scripts && cp "$PATTERN_DIR"/scripts/*.sh /home/ec2-user/scripts/ && chmod +x /home/ec2-user/scripts/*.sh
