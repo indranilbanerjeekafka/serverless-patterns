@@ -41,7 +41,7 @@ Parameters:
     Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64'
   JavaVersion:
     Type: String
-    Description: Choose the version of Java for the Lambda function. Lambda supports Java 11, 17, 21 and 25.
+    Description: Amazon Corretto (Java) version installed on the EC2 Kafka brokers and client to run Apache Kafka and its CLI tools. This does NOT set the Lambda runtime - the Lambda consumer uses the Python runtime defined in the SAM template / deploy script.
     AllowedValues:
       - java11
       - java17
@@ -1211,7 +1211,6 @@ Resources:
               sed -i "s|SUBNET_3|$SUBNET3|g" template.yaml
               sed -i "s|LAMBDA_SG|$LAMBDA_SG|g" template.yaml
               sed -i "s|KAFKA_TOPIC|$KAFKA_TOPIC|g" template.yaml
-              sed -i "s|JAVA_VERSION|$JAVA_VERSION|g" template.yaml
 
               chown -R ec2-user:ec2-user /home/ec2-user
 

@@ -17,6 +17,7 @@ Parameters:
     Default: 3.6.0
   JavaVersion:
     Type: String
+    Description: Amazon Corretto (Java) version installed on the EC2 client to run the Apache Kafka CLI tools. This does NOT set the Lambda runtime - the Lambda consumer uses the Python runtime defined in the SAM template / deploy script.
     AllowedValues: [java11, java17, java21, java25]
     Default: java21
   ApacheKafkaInstallerLocation:
