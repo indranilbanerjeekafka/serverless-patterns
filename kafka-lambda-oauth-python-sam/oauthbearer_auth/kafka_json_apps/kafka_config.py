@@ -5,12 +5,28 @@ Both the SASL/OAUTHBEARER patterns (static Cognito / AWS web-identity token
 embedded in the properties file) and the MSK IAM pattern (token minted on demand
 by the AWS MSK IAM SASL signer) are supported, so the producer/consumer code is
 identical across all three patterns.
+
+Requires kafka-python < 3 (the 2.x line), whose SASL/OAUTHBEARER support takes a
+``sasl_oauth_token_provider`` implementing ``AbstractTokenProvider``. The 3.x
+rewrite dropped that parameter, so pin ``kafka-python<3`` (see requirements.txt).
 """
 import os
 import re
 
+try:
+    # kafka-python OAUTHBEARER token-provider base class. Its location moved
+    # between 2.x releases: kafka.sasl.oauth (>= 2.1) and kafka.oauth.abstract
+    # (2.0.x). Try both.
+    from kafka.sasl.oauth import AbstractTokenProvider as _TokenProviderBase
+except Exception:
+    try:
+        from kafka.oauth.abstract import AbstractTokenProvider as _TokenProviderBase
+    except Exception:  # kafka not importable (e.g. isolated unit test) - degrade gracefully
+        class _TokenProviderBase:  # noqa: D401 - minimal stand-in
+            pass
 
-class _StaticTokenProvider:
+
+class _StaticTokenProvider(_TokenProviderBase):
     """Returns a pre-minted OAUTHBEARER access token (Cognito / AWS web-identity)."""
 
     def __init__(self, token):
@@ -19,8 +35,11 @@ class _StaticTokenProvider:
     def token(self):
         return self._token
 
+    def extensions(self):
+        return {}
 
-class _MskTokenProvider:
+
+class _MskTokenProvider(_TokenProviderBase):
     """Mints an MSK IAM OAUTHBEARER token via the AWS signer, optionally as a role."""
 
     def __init__(self, region, role_arn=None):
@@ -34,6 +53,9 @@ class _MskTokenProvider:
         else:
             token, _ = MSKAuthTokenProvider.generate_auth_token(self.region)
         return token
+
+    def extensions(self):
+        return {}
 
 
 def load_properties(path):
@@ -59,10 +81,13 @@ def client_kwargs(properties_file):
     }
     # TLS trust anchor: self-managed brokers present a self-signed cert whose CA
     # PEM sits on the client instance; MSK presents a publicly-trusted Amazon
-    # cert, so we fall back to the default system trust store.
+    # cert, so we fall back to the default system trust store. The self-signed
+    # cert carries the broker IPs as SANs, but disable hostname checking to stay
+    # robust if a broker is reached by an address not listed in the SANs.
     ca_cert = os.environ.get("KAFKA_CA_CERT", "/home/ec2-user/kafka.crt")
     if os.path.isfile(ca_cert):
         kwargs["ssl_cafile"] = ca_cert
+        kwargs["ssl_check_hostname"] = False
 
     region = os.environ.get("AWS_REGION", "us-west-2")
     jaas = props.get("sasl.jaas.config", "")

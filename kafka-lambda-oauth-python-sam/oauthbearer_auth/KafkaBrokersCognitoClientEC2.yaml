@@ -1126,7 +1126,7 @@ Resources:
               # Install Python 3 + pip and the Kafka client libraries used by the
               # producer/consumer sample apps (kafka-python is pure-Python).
               install_pkg python3-pip
-              pip3 install --quiet kafka-python faker
+              pip3 install --quiet 'kafka-python<3' faker
 
               # AWS CLI v2
               cd /home/ec2-user

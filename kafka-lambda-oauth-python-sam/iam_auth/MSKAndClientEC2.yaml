@@ -341,7 +341,7 @@ Resources:
 
               # Python 3 + pip for the Lambda consumer and the JSON sample apps
               install_pkg python3-pip
-              pip3 install --quiet kafka-python faker aws-msk-iam-sasl-signer-python
+              pip3 install --quiet 'kafka-python<3' faker aws-msk-iam-sasl-signer-python
 
               # AWS CLI v2
               cd /home/ec2-user

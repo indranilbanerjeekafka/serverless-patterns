@@ -1091,7 +1091,7 @@ Resources:
               # Java stays installed above only for the Kafka CLI tools + Strimzi
               # client OAuth libraries used by the admin / negative-test scripts.
               install_pkg python3-pip
-              pip3 install --quiet kafka-python faker
+              pip3 install --quiet 'kafka-python<3' faker
 
               # AWS CLI v2
               cd /home/ec2-user
