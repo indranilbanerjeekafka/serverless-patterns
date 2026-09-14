@@ -13,7 +13,7 @@ This pattern is a Lambda function that consumes from an **Amazon MSK cluster wit
 - `kafka_event_consumer_function/` - the Java consumer (writes to DynamoDB).
 - `kafka_json_apps/` - Datafaker JSON producer/consumer (built with `aws-msk-iam-auth`).
 - `scripts/` - `refresh_token.sh` (writes an AWS_MSK_IAM client.properties per role), `admin_create_topic.sh`, `producer_send.sh`, `consumer_receive.sh`, and negative tests.
-- `deploy_lambda_iam_cli.sh` - deploys the Lambda + `IAM_AUTH` event source via the AWS CLI.
+- `scripts/deploy_lambda_iam_cli.sh` - deploys the Lambda + `IAM_AUTH` event source via the AWS CLI.
 - `template_original.yaml` - SAM template (function + DynamoDB table); SAM does not support this auth type, so use the CLI deploy.
 
 ## Identity & authorization model
@@ -42,7 +42,7 @@ MSK presents a publicly-trusted TLS certificate, so no truststore / `SERVER_ROOT
    ```bash
    export AWS_REGION=us-west-2
    cd ~/serverless-patterns/kafka-lambda-oauth-java-sam/iam_auth
-   bash deploy_lambda_iam_cli.sh
+   bash scripts/deploy_lambda_iam_cli.sh
    ```
    It resolves the IAM bootstrap brokers, creates the DynamoDB table (`KafkaIamAuth`), grants the execution role `kafka-cluster` read access + `dynamodb:PutItem`, and creates the ESM with `{Type: IAM_AUTH}`.
 

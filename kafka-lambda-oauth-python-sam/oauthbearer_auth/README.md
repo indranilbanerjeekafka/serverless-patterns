@@ -15,7 +15,7 @@ This project contains source code and supporting files for a serverless applicat
 - `scripts` - Helper scripts installed on the client EC2 instance (token refresh, admin/producer/consumer, negative tests).
 - `events` - Invocation events you can use to invoke the function locally.
 - `template_original.yaml` - A SAM template for the Lambda function + DynamoDB table (see the note on SAM/OAuth support below).
-- `deploy_lambda_oauth_cli.sh` - Deploys the Lambda function and its self-managed Kafka OAUTHBEARER event source via the AWS CLI.
+- `scripts/deploy_lambda_oauth_cli.sh` - Deploys the Lambda function and its self-managed Kafka OAUTHBEARER event source via the AWS CLI.
 - `KafkaBrokersCognitoClientEC2.yaml` - A CloudFormation template that deploys the self-managed Kafka cluster (3 broker EC2 instances), an Amazon Cognito User Pool, and a client EC2 machine with all pre-requisites installed, so you can build, deploy and test the Lambda function.
 
 Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the [AWS Pricing page](https://aws.amazon.com/pricing/) for details. You are responsible for any AWS costs incurred. No warranty is implied in this example.
@@ -118,7 +118,7 @@ Run it from this directory on the client EC2 instance:
 ```bash
 export AWS_REGION=us-west-2
 cd ~/serverless-patterns/kafka-lambda-oauth-python-sam/oauthbearer_auth
-bash deploy_lambda_oauth_cli.sh
+bash scripts/deploy_lambda_oauth_cli.sh
 ```
 
 Wait for the event source mapping to reach `Enabled`:

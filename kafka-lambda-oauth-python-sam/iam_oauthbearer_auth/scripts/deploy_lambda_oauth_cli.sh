@@ -25,6 +25,7 @@
 set -euo pipefail
 export AWS_PAGER=""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATTERN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---------------------------- Configuration ---------------------------------
 REGION="${AWS_REGION:-us-west-2}"
@@ -32,7 +33,7 @@ STACK_NAME="${STACK_NAME:-kafka-iam-oauth}"
 FUNCTION_NAME="${FUNCTION_NAME:-kafka-iam-oauth-consumer}"
 RUNTIME="${RUNTIME:-python3.13}"
 HANDLER="app.lambda_handler"
-ZIP_PATH="${ZIP_PATH:-$SCRIPT_DIR/kafka_event_consumer_function/function.zip}"
+ZIP_PATH="${ZIP_PATH:-$PATTERN_DIR/kafka_event_consumer_function/function.zip}"
 TOPIC="${TOPIC:-${KAFKA_TOPIC:-KafkaIamOAuthBearerLambdaTopic}}"
 CONSUMER_GROUP="${CONSUMER_GROUP:-lambda-iam-oauth-consumer}"
 POLLER_GROUP="${POLLER_GROUP:-${CONSUMER_GROUP}-cell1}"
@@ -85,7 +86,7 @@ fi
 # The consumer only needs app.py; boto3 is provided by the Lambda Python runtime.
 if [ ! -f "$ZIP_PATH" ]; then
   echo "Packaging consumer zip..."
-  ( cd "$SCRIPT_DIR/kafka_event_consumer_function" && rm -f function.zip && zip -q function.zip app.py )
+  ( cd "$PATTERN_DIR/kafka_event_consumer_function" && rm -f function.zip && zip -q function.zip app.py )
 fi
 
 # ---------------------------- DynamoDB table ---------------------------------

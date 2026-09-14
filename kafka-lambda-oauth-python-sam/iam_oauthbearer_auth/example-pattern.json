@@ -10,7 +10,7 @@
             "This pattern provisions a self-managed Apache Kafka cluster (3 brokers on 3 EC2 instances, KRaft mode) plus a 4th EC2 instance that acts as a Kafka client and SAM deployment host.",
             "The Kafka brokers are configured for SASL/OAUTHBEARER, validating AWS-minted web-identity (OIDC) tokens against the AWS STS Outbound Identity Federation JWKS endpoint, with a required audience. There is no external identity provider.",
             "The Lambda event source poller mints a web-identity token from its execution role (sts:GetWebIdentityToken) and presents it to the brokers. The interactive admin/producer/consumer clients assume dedicated IAM roles and mint their own tokens, so Kafka ACLs still distinguish them.",
-            "This deploys via the AWS CLI (deploy_lambda_oauth_cli.sh) using IAM_OAUTHBEARER_AUTH + OAUTHBEARER_AUDIENCE, since AWS SAM does not support these event-source auth types yet. This is an under-development capability.",
+            "This deploys via the AWS CLI (scripts/deploy_lambda_oauth_cli.sh) using IAM_OAUTHBEARER_AUTH + OAUTHBEARER_AUDIENCE, since AWS SAM does not support these event-source auth types yet. This is an under-development capability.",
             "For detailed deployment instructions see the README.md"
         ]
     },

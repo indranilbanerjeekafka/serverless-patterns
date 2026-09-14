@@ -19,7 +19,7 @@ The `<uuid>` is account-specific — enable federation (`aws iam enable-outbound
 - `kafka_json_apps/` - Python producer/consumer sample apps (kafka-python + Faker).
 - `scripts/` - `refresh_token.sh` (mints a web-identity token per role), `admin_create_topic.sh`, `producer_send.sh`, `consumer_receive.sh`, and negative tests.
 - `template_original.yaml` - SAM template (function + DynamoDB table). SAM does not support this auth type, so use the CLI deploy below.
-- `deploy_lambda_oauth_cli.sh` - deploys the Lambda + `IAM_OAUTHBEARER_AUTH` event source via the AWS CLI.
+- `scripts/deploy_lambda_oauth_cli.sh` - deploys the Lambda + `IAM_OAUTHBEARER_AUTH` event source via the AWS CLI.
 - `KafkaBrokersClientEC2.yaml` - CloudFormation: the 3-broker cluster, three IAM client roles, and the client EC2 machine.
 
 ## Identity & authorization model
@@ -41,7 +41,7 @@ Each interactive client **assumes** its role and mints a web-identity token (`re
    ```bash
    export AWS_REGION=us-west-2
    cd ~/serverless-patterns/kafka-lambda-oauth-python-sam/iam_oauthbearer_auth
-   bash deploy_lambda_oauth_cli.sh
+   bash scripts/deploy_lambda_oauth_cli.sh
    ```
    It enables outbound federation, creates the DynamoDB table (`KafkaIamOAuthBearerAuth`), grants the execution role `sts:GetWebIdentityToken`, and creates the ESM with `IAM_OAUTHBEARER_AUTH` + `OAUTHBEARER_AUDIENCE` + `SERVER_ROOT_CA_CERTIFICATE`.
 

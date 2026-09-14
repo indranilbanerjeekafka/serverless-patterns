@@ -9,21 +9,22 @@
 # function's execution role via SASL/AWS_MSK_IAM - no secret, no trust anchor.
 # AWS SAM does not support this auth type, so we use the AWS CLI directly.
 #
-# Reuses the same Java consumer (HandlerMSK); it writes messages to DynamoDB.
+# Reuses the same Python consumer (app.py); it writes messages to DynamoDB.
 #
 # PREREQUISITE: your account is ALLOWLISTED for the self-managed Kafka ESM auth types.
 # =============================================================================
 set -euo pipefail
 export AWS_PAGER=""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATTERN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---------------------------- Configuration ---------------------------------
 REGION="${AWS_REGION:-us-west-2}"
 STACK_NAME="${STACK_NAME:-kafka-iam}"
 FUNCTION_NAME="${FUNCTION_NAME:-kafka-iam-consumer}"
-RUNTIME="${RUNTIME:-java21}"
-HANDLER="com.amazonaws.services.lambda.samples.events.msk.HandlerMSK::handleRequest"
-JAR_PATH="${JAR_PATH:-$SCRIPT_DIR/kafka_event_consumer_function/target/MSKConsumer-1.0.jar}"
+RUNTIME="${RUNTIME:-python3.13}"
+HANDLER="app.lambda_handler"
+ZIP_PATH="${ZIP_PATH:-$PATTERN_DIR/kafka_event_consumer_function/function.zip}"
 TOPIC="${TOPIC:-${KAFKA_TOPIC:-KafkaIamLambdaTopic}}"
 CONSUMER_GROUP="${CONSUMER_GROUP:-lambda-iam-consumer}"
 POLLER_GROUP="${POLLER_GROUP:-${CONSUMER_GROUP}-cell1}"
@@ -51,10 +52,12 @@ CLUSTER_RES="arn:aws:kafka:${REGION}:$(aws sts get-caller-identity --query Accou
 TOPIC_RES="${CLUSTER_RES/:cluster\//:topic\/}"
 GROUP_RES="${CLUSTER_RES/:cluster\//:group\/}"
 
-# ------------------------------ Build the jar --------------------------------
-if [ ! -f "$JAR_PATH" ]; then
-  echo "Building consumer jar..."
-  ( cd "$SCRIPT_DIR/kafka_event_consumer_function" && mvn -q -DskipTests package )
+# ------------------------------ Package the zip ------------------------------
+# The consumer only uses the standard library plus boto3 (already in the Lambda
+# Python runtime), so the deployment package is just app.py.
+if [ ! -f "$ZIP_PATH" ]; then
+  echo "Packaging consumer zip..."
+  ( cd "$PATTERN_DIR/kafka_event_consumer_function" && rm -f function.zip && zip -q function.zip app.py )
 fi
 
 # ---------------------------- DynamoDB table ---------------------------------
@@ -96,14 +99,14 @@ aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name dynamodb-write --
 
 # ------------------------- Create/update the function ------------------------
 if aws lambda get-function --region "$REGION" --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
-  aws lambda update-function-code --region "$REGION" --function-name "$FUNCTION_NAME" --zip-file "fileb://$JAR_PATH" >/dev/null
+  aws lambda update-function-code --region "$REGION" --function-name "$FUNCTION_NAME" --zip-file "fileb://$ZIP_PATH" >/dev/null
   aws lambda wait function-updated-v2 --region "$REGION" --function-name "$FUNCTION_NAME" 2>/dev/null || sleep 10
   aws lambda update-function-configuration --region "$REGION" --function-name "$FUNCTION_NAME" \
     --environment "Variables={DYNAMODB_TABLE_NAME=$DDB_TABLE_NAME}" >/dev/null
 else
   aws lambda create-function --region "$REGION" --function-name "$FUNCTION_NAME" \
     --runtime "$RUNTIME" --role "$ROLE_ARN" --handler "$HANDLER" \
-    --zip-file "fileb://$JAR_PATH" --timeout 60 --memory-size 512 \
+    --zip-file "fileb://$ZIP_PATH" --timeout 60 --memory-size 512 \
     --environment "Variables={DYNAMODB_TABLE_NAME=$DDB_TABLE_NAME}" >/dev/null
 fi
 aws lambda wait function-active-v2 --region "$REGION" --function-name "$FUNCTION_NAME" 2>/dev/null || sleep 10
