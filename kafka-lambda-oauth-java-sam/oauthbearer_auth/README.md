@@ -1,13 +1,13 @@
 # kafka-lambda-oauth-java-sam / oauthbearer_auth
 # Java AWS Lambda consumer for a self-managed Apache Kafka cluster with OAuth (SASL/OAUTHBEARER) authentication
 
-This pattern is an example of a Lambda function that consumes messages from a **self-managed Apache Kafka** cluster (3 brokers running on Amazon EC2 in KRaft mode), where the cluster is configured to use **SASL/OAUTHBEARER** authentication with an **Amazon Cognito User Pool** as the OAuth 2.0 identity provider. The Lambda function parses each Kafka message and writes the message fields together with the Kafka metadata to an **Amazon DynamoDB** table.
+A Lambda function consumes from a **self-managed Apache Kafka** cluster (3 brokers on Amazon EC2, KRaft mode) that authenticates clients with **SASL/OAUTHBEARER**, using an **Amazon Cognito User Pool** as the OAuth 2.0 identity provider. The function parses each Kafka message and writes its fields plus the Kafka metadata to **Amazon DynamoDB**.
 
 It is the self-managed-Kafka + OAuth counterpart of the [`msk-lambda-iam-java-sam`](https://github.com/aws-samples/serverless-patterns/tree/main/msk-lambda-iam-java-sam) pattern (Amazon MSK with IAM auth).
 
-> This is the `oauthbearer_auth` variant. The parent `kafka-lambda-oauth-java-sam` folder is intended to hold sibling variants for the other self-managed Kafka event-source auth types (`iam_auth`, `iam_oauthbearer_auth`).
+> This is the `oauthbearer_auth` variant. Its siblings for the other self-managed Kafka event-source auth types (`iam_auth`, `iam_oauthbearer_auth`) sit alongside it under `kafka-lambda-oauth-java-sam`.
 
-This project contains source code and supporting files for a serverless application. It includes the following files and folders:
+Files and folders:
 
 - `kafka_event_consumer_function/src/main/java` - Code for the application's Lambda function (parses each Kafka message and writes it to DynamoDB).
 - `kafka_event_consumer_function/src/test/java` - Unit tests for the application code.

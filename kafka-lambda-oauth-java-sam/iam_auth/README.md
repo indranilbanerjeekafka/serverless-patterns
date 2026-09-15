@@ -1,12 +1,12 @@
 # kafka-lambda-oauth-java-sam / iam_auth
 # Java AWS Lambda consumer for Amazon MSK via a self-managed Kafka event source with IAM_AUTH
 
-> **Under development.** This variant exercises the AWS Lambda **`IAM_AUTH`** auth type for a **self-managed** Kafka event source, which is not yet generally available. The fully-verified reference variant is [`oauthbearer_auth`](../oauthbearer_auth).
+> **Under development.** This variant uses the AWS Lambda **`IAM_AUTH`** auth type for a **self-managed** Kafka event source, which isn't generally available yet. For the fully-verified reference variant, see [`oauthbearer_auth`](../oauthbearer_auth).
 
-This pattern is a Lambda function that consumes from an **Amazon MSK cluster with IAM authentication** — but instead of using the native MSK event source, the cluster is declared to Lambda as a **self-managed** Kafka event source pointed at its **IAM bootstrap endpoint (`:9098`)** with the **`IAM_AUTH`** auth type (the "Kafka OAuth & IAM Testing Manual", Route B). The Lambda function parses each Kafka message and writes it (fields + Kafka metadata) to Amazon DynamoDB.
+A Lambda function that consumes from an **Amazon MSK cluster with IAM authentication**. Instead of the native MSK event source, the cluster is declared to Lambda as a **self-managed** Kafka event source pointed at MSK's **IAM bootstrap endpoint (`:9098`)** with the **`IAM_AUTH`** auth type (see the "Kafka OAuth & IAM Testing Manual", Route B). The function parses each Kafka message and writes its fields plus Kafka metadata to Amazon DynamoDB.
 
 ## Why MSK (not the 3 EC2 brokers)
-`IAM_AUTH` is `AWS_MSK_IAM` — a server-side capability of Amazon MSK. Self-managed brokers on EC2 cannot validate it, so this variant provisions an **MSK cluster** (the sibling variants use self-managed EC2 brokers). Authorization is by **IAM policy** (`kafka-cluster:*` actions), not Kafka ACLs.
+`IAM_AUTH` is `AWS_MSK_IAM`, a server-side capability of Amazon MSK. Self-managed EC2 brokers can't validate it, so this variant provisions an **MSK cluster** while the sibling variants use self-managed EC2 brokers. Authorization is by **IAM policy** (`kafka-cluster:*` actions), not Kafka ACLs.
 
 ## Files
 - `MSKAndClientEC2.yaml` - CloudFormation: MSK (IAM) cluster, a client EC2 instance, and three IAM client roles (admin/producer/consumer).
